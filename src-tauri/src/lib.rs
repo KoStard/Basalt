@@ -1,17 +1,18 @@
 use anyhow::{anyhow, Context, Result};
 use notify::{Config, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
     fs,
-    io::{self, IsTerminal, Read},
+    io::{self, BufWriter, IsTerminal, Read, Write},
+    net::{Shutdown, SocketAddr, TcpListener, TcpStream},
     path::{Path, PathBuf},
     process::{Command, Stdio},
     sync::{
         atomic::{AtomicU64, Ordering},
-        Mutex,
+        mpsc, Mutex,
     },
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tauri::{
     menu::{MenuBuilder, MenuEvent, MenuItem, PredefinedMenuItem, Submenu, SubmenuBuilder},
@@ -27,6 +28,11 @@ const MENU_ID_FILE_OPEN: &str = "file.open";
 const MENU_ID_FILE_OPEN_RECENT_PREFIX: &str = "file.open_recent.";
 const MENU_ID_FILE_NO_RECENTS: &str = "file.open_recent.none";
 const MENU_ID_EDIT_FIND: &str = "edit.find";
+const WINDOW_USAGE: &str = "Usage:
+  basalt windows list [--json]
+  basalt windows close <path>
+  basalt windows close --path <path>
+  basalt windows close --label <window-label>";
 
 #[derive(Default)]
 struct AppState {
@@ -56,6 +62,48 @@ struct RecentFileEntry {
     path: String,
     file_name: String,
     available: bool,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WindowDescriptor {
+    label: String,
+    path: String,
+    title: String,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(tag = "command", rename_all = "kebab-case")]
+enum ControlRequest {
+    ListWindows,
+    CloseByPath { path: String },
+    CloseByLabel { label: String },
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ControlResponse {
+    ok: bool,
+    message: String,
+    windows: Vec<WindowDescriptor>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ControlEndpoint {
+    host: String,
+    port: u16,
+}
+
+enum WindowCliCommand {
+    List { json: bool },
+    CloseByPath { path: String },
+    CloseByLabel { label: String },
+}
+
+struct CloseOutcome {
+    closed: Vec<WindowDescriptor>,
+    failures: Vec<String>,
 }
 
 #[tauri::command]
@@ -679,6 +727,485 @@ fn register_window_cleanup(window: &WebviewWindow, app: AppHandle) {
     });
 }
 
+fn list_open_windows(state: &AppState) -> Result<Vec<WindowDescriptor>, String> {
+    let documents = state
+        .documents
+        .lock()
+        .map_err(|_| "App state is unavailable right now.".to_string())?;
+
+    let mut windows: Vec<WindowDescriptor> = documents
+        .iter()
+        .map(|(label, path)| WindowDescriptor {
+            label: label.to_string(),
+            path: path_display(path),
+            title: title_for_document(path),
+        })
+        .collect();
+
+    windows.sort_by(|left, right| {
+        left.path
+            .cmp(&right.path)
+            .then(left.label.cmp(&right.label))
+    });
+    Ok(windows)
+}
+
+fn close_windows_by_path_key(
+    app: &AppHandle,
+    state: &AppState,
+    target_key: &str,
+) -> Result<CloseOutcome, String> {
+    let matches = {
+        let documents = state
+            .documents
+            .lock()
+            .map_err(|_| "App state is unavailable right now.".to_string())?;
+        documents
+            .iter()
+            .filter(|(_label, path)| path_key(path) == target_key)
+            .map(|(label, path)| WindowDescriptor {
+                label: label.to_string(),
+                path: path_display(path),
+                title: title_for_document(path),
+            })
+            .collect::<Vec<_>>()
+    };
+
+    close_windows_by_descriptors(app, state, matches)
+}
+
+fn close_window_by_label(
+    app: &AppHandle,
+    state: &AppState,
+    label: &str,
+) -> Result<CloseOutcome, String> {
+    let matches = {
+        let documents = state
+            .documents
+            .lock()
+            .map_err(|_| "App state is unavailable right now.".to_string())?;
+        documents
+            .get(label)
+            .map(|path| {
+                vec![WindowDescriptor {
+                    label: label.to_string(),
+                    path: path_display(path),
+                    title: title_for_document(path),
+                }]
+            })
+            .unwrap_or_default()
+    };
+
+    close_windows_by_descriptors(app, state, matches)
+}
+
+fn close_windows_by_descriptors(
+    app: &AppHandle,
+    state: &AppState,
+    windows: Vec<WindowDescriptor>,
+) -> Result<CloseOutcome, String> {
+    let mut closed = Vec::new();
+    let mut failures = Vec::new();
+
+    for window_descriptor in windows {
+        if let Some(window) = app.get_webview_window(&window_descriptor.label) {
+            if let Err(error) = window.close() {
+                failures.push(format!("{}: {error}", window_descriptor.label));
+                continue;
+            }
+        }
+        closed.push(window_descriptor);
+    }
+
+    if !closed.is_empty() {
+        let mut documents = state
+            .documents
+            .lock()
+            .map_err(|_| "App state is unavailable right now.".to_string())?;
+        for window in &closed {
+            documents.remove(&window.label);
+        }
+    }
+
+    Ok(CloseOutcome { closed, failures })
+}
+
+fn run_on_main_thread_sync<T, F>(app: &AppHandle, task: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce(&AppHandle) -> Result<T, String> + Send + 'static,
+{
+    let (sender, receiver) = mpsc::channel();
+    let app_handle = app.clone();
+
+    app.run_on_main_thread(move || {
+        let result = task(&app_handle);
+        let _ = sender.send(result);
+    })
+    .map_err(|error| format!("Unable to schedule window operation: {error}"))?;
+
+    receiver
+        .recv()
+        .map_err(|_| "Window operation failed before returning a result.".to_string())?
+}
+
+fn control_endpoint_path() -> PathBuf {
+    if let Some(runtime_dir) = std::env::var_os("XDG_RUNTIME_DIR") {
+        return PathBuf::from(runtime_dir).join("basalt-control.json");
+    }
+
+    if let Some(home_dir) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")) {
+        return PathBuf::from(home_dir).join(".basalt").join("control.json");
+    }
+
+    std::env::temp_dir().join("basalt-control.json")
+}
+
+fn start_control_server(app: AppHandle) -> Result<()> {
+    let endpoint_path = control_endpoint_path();
+    if let Some(parent) = endpoint_path.parent() {
+        fs::create_dir_all(parent).with_context(|| {
+            format!(
+                "Unable to create control directory {}",
+                path_display(parent)
+            )
+        })?;
+    }
+
+    let listener = TcpListener::bind("127.0.0.1:0").context("Unable to bind control socket")?;
+    let endpoint = ControlEndpoint {
+        host: "127.0.0.1".to_string(),
+        port: listener
+            .local_addr()
+            .context("Unable to determine control port")?
+            .port(),
+    };
+
+    fs::write(
+        &endpoint_path,
+        serde_json::to_vec(&endpoint).context("Unable to encode control endpoint")?,
+    )
+    .with_context(|| {
+        format!(
+            "Unable to write control endpoint {}",
+            path_display(&endpoint_path)
+        )
+    })?;
+
+    std::thread::spawn(move || {
+        for incoming in listener.incoming() {
+            match incoming {
+                Ok(stream) => {
+                    if let Err(error) = handle_control_connection(stream, &app) {
+                        eprintln!("Control command failed: {error:#}");
+                    }
+                }
+                Err(error) => {
+                    eprintln!("Control socket error: {error}");
+                }
+            }
+        }
+    });
+
+    Ok(())
+}
+
+fn handle_control_connection(mut stream: TcpStream, app: &AppHandle) -> Result<()> {
+    stream.set_read_timeout(Some(Duration::from_secs(2))).ok();
+    stream.set_write_timeout(Some(Duration::from_secs(2))).ok();
+
+    let request: ControlRequest =
+        serde_json::from_reader(&mut stream).context("Invalid control request payload")?;
+    let response = execute_control_request(app, request);
+
+    let mut writer = BufWriter::new(stream);
+    serde_json::to_writer(&mut writer, &response).context("Unable to write control response")?;
+    writer
+        .flush()
+        .context("Unable to flush control response to client")
+}
+
+fn execute_control_request(app: &AppHandle, request: ControlRequest) -> ControlResponse {
+    match request {
+        ControlRequest::ListWindows => {
+            let state = app.state::<AppState>();
+            match list_open_windows(state.inner()) {
+                Ok(windows) => ControlResponse {
+                    ok: true,
+                    message: format!("{} window(s) open.", windows.len()),
+                    windows,
+                },
+                Err(message) => ControlResponse {
+                    ok: false,
+                    message,
+                    windows: Vec::new(),
+                },
+            }
+        }
+        ControlRequest::CloseByPath { path } => {
+            let target_key = path_key(Path::new(&path));
+            match run_on_main_thread_sync(app, move |handle| {
+                let state = handle.state::<AppState>();
+                close_windows_by_path_key(handle, state.inner(), &target_key)
+            }) {
+                Ok(outcome) if outcome.closed.is_empty() => ControlResponse {
+                    ok: false,
+                    message: format!("No open window is currently bound to '{}'.", path),
+                    windows: Vec::new(),
+                },
+                Ok(outcome) if outcome.failures.is_empty() => {
+                    let closed_count = outcome.closed.len();
+                    ControlResponse {
+                        ok: true,
+                        message: format!("Closed {closed_count} window(s)."),
+                        windows: outcome.closed,
+                    }
+                }
+                Ok(outcome) => {
+                    let closed_count = outcome.closed.len();
+                    ControlResponse {
+                        ok: false,
+                        message: format!(
+                            "Closed {closed_count} window(s), but some failed: {}",
+                            outcome.failures.join("; ")
+                        ),
+                        windows: outcome.closed,
+                    }
+                }
+                Err(message) => ControlResponse {
+                    ok: false,
+                    message,
+                    windows: Vec::new(),
+                },
+            }
+        }
+        ControlRequest::CloseByLabel { label } => {
+            let label_for_error = label.clone();
+            match run_on_main_thread_sync(app, move |handle| {
+                let state = handle.state::<AppState>();
+                close_window_by_label(handle, state.inner(), &label)
+            }) {
+                Ok(outcome) if outcome.closed.is_empty() => ControlResponse {
+                    ok: false,
+                    message: format!("No open window found with label '{}'.", label_for_error),
+                    windows: Vec::new(),
+                },
+                Ok(outcome) if outcome.failures.is_empty() => ControlResponse {
+                    ok: true,
+                    message: "Closed 1 window.".to_string(),
+                    windows: outcome.closed,
+                },
+                Ok(outcome) => ControlResponse {
+                    ok: false,
+                    message: format!("Window close failed: {}", outcome.failures.join("; ")),
+                    windows: outcome.closed,
+                },
+                Err(message) => ControlResponse {
+                    ok: false,
+                    message,
+                    windows: Vec::new(),
+                },
+            }
+        }
+    }
+}
+
+fn parse_window_cli_command(args: &[String]) -> Result<Option<WindowCliCommand>> {
+    let Some(scope) = args.first() else {
+        return Ok(None);
+    };
+
+    if scope != "windows" && scope != "window" {
+        return Ok(None);
+    }
+
+    let Some(subcommand) = args.get(1) else {
+        return Err(anyhow!(WINDOW_USAGE));
+    };
+
+    match subcommand.as_str() {
+        "list" => {
+            let mut json = false;
+            for arg in &args[2..] {
+                if arg == "--json" {
+                    json = true;
+                } else {
+                    return Err(anyhow!(WINDOW_USAGE));
+                }
+            }
+            Ok(Some(WindowCliCommand::List { json }))
+        }
+        "close" => {
+            let rest = &args[2..];
+            if rest.is_empty() {
+                return Err(anyhow!(WINDOW_USAGE));
+            }
+
+            if rest[0] == "--path" {
+                if rest.len() != 2 {
+                    return Err(anyhow!(WINDOW_USAGE));
+                }
+                let normalized_path = normalize_cli_path(&rest[1])?;
+                return Ok(Some(WindowCliCommand::CloseByPath {
+                    path: normalized_path,
+                }));
+            }
+
+            if rest[0] == "--label" {
+                if rest.len() != 2 || rest[1].trim().is_empty() {
+                    return Err(anyhow!(WINDOW_USAGE));
+                }
+                return Ok(Some(WindowCliCommand::CloseByLabel {
+                    label: rest[1].to_string(),
+                }));
+            }
+
+            if rest.len() == 1 {
+                let normalized_path = normalize_cli_path(&rest[0])?;
+                return Ok(Some(WindowCliCommand::CloseByPath {
+                    path: normalized_path,
+                }));
+            }
+
+            Err(anyhow!(WINDOW_USAGE))
+        }
+        _ => Err(anyhow!(WINDOW_USAGE)),
+    }
+}
+
+fn normalize_cli_path(path: &str) -> Result<String> {
+    if path.trim().is_empty() {
+        return Err(anyhow!("Path cannot be empty."));
+    }
+
+    let raw = PathBuf::from(path);
+    let cwd = std::env::current_dir().context("Unable to determine current directory")?;
+    let absolute = if raw.is_absolute() {
+        raw
+    } else {
+        cwd.join(raw)
+    };
+
+    let normalized = if absolute.exists() {
+        fs::canonicalize(&absolute).unwrap_or(absolute)
+    } else {
+        absolute
+    };
+
+    Ok(path_display(&normalized))
+}
+
+fn run_window_cli(args: &[String]) -> Result<bool> {
+    let Some(command) = parse_window_cli_command(args)? else {
+        return Ok(false);
+    };
+
+    match command {
+        WindowCliCommand::List { json } => {
+            let response = send_control_request(ControlRequest::ListWindows)?;
+            if !response.ok {
+                return Err(anyhow!(response.message));
+            }
+
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&response.windows)
+                        .context("Unable to encode windows as JSON")?
+                );
+            } else if response.windows.is_empty() {
+                println!("No document windows are open.");
+            } else {
+                for window in response.windows {
+                    println!("{}\t{}", window.label, window.path);
+                }
+            }
+        }
+        WindowCliCommand::CloseByPath { path } => {
+            let response = send_control_request(ControlRequest::CloseByPath { path })?;
+            if response.windows.is_empty() {
+                return Err(anyhow!(response.message));
+            }
+
+            for window in &response.windows {
+                println!("{}\t{}", window.label, window.path);
+            }
+
+            if !response.ok {
+                return Err(anyhow!(response.message));
+            }
+        }
+        WindowCliCommand::CloseByLabel { label } => {
+            let response = send_control_request(ControlRequest::CloseByLabel { label })?;
+            if response.windows.is_empty() {
+                return Err(anyhow!(response.message));
+            }
+
+            for window in &response.windows {
+                println!("{}\t{}", window.label, window.path);
+            }
+
+            if !response.ok {
+                return Err(anyhow!(response.message));
+            }
+        }
+    }
+
+    Ok(true)
+}
+
+fn send_control_request(request: ControlRequest) -> Result<ControlResponse> {
+    let endpoint_path = control_endpoint_path();
+    let endpoint_data = fs::read(&endpoint_path).with_context(|| {
+        format!(
+            "Basalt is not running. Start it first, then retry. Missing {}",
+            path_display(&endpoint_path)
+        )
+    })?;
+    let endpoint: ControlEndpoint =
+        serde_json::from_slice(&endpoint_data).context("Control endpoint file is invalid")?;
+
+    let address: SocketAddr = format!("{}:{}", endpoint.host, endpoint.port)
+        .parse()
+        .context("Control endpoint address is invalid")?;
+
+    let mut stream = None;
+    let mut last_error = None;
+    for _attempt in 0..5 {
+        match TcpStream::connect_timeout(&address, Duration::from_millis(500)) {
+            Ok(connected) => {
+                stream = Some(connected);
+                break;
+            }
+            Err(error) => {
+                last_error = Some(error);
+                std::thread::sleep(Duration::from_millis(120));
+            }
+        }
+    }
+
+    let mut stream = match stream {
+        Some(stream) => stream,
+        None => {
+            let _ = fs::remove_file(&endpoint_path);
+            let error = last_error
+                .map(|value| value.to_string())
+                .unwrap_or_else(|| "unknown connection failure".to_string());
+            return Err(anyhow!(
+                "Unable to reach the running Basalt instance ({error}). Start Basalt and retry."
+            ));
+        }
+    };
+
+    stream.set_read_timeout(Some(Duration::from_secs(2))).ok();
+    stream.set_write_timeout(Some(Duration::from_secs(2))).ok();
+
+    serde_json::to_writer(&mut stream, &request).context("Failed to send control request")?;
+    stream.shutdown(Shutdown::Write).ok();
+
+    serde_json::from_reader(&mut stream).context("Failed to decode control response")
+}
+
 fn collect_targets_from_args(args: &[String]) -> Vec<PathBuf> {
     let mut targets = Vec::new();
     let mut seen = HashSet::new();
@@ -1030,6 +1557,15 @@ fn maybe_strip_executable(argv: Vec<String>) -> Vec<String> {
 pub fn run() {
     let cli_args: Vec<String> = std::env::args().skip(1).collect();
 
+    match run_window_cli(&cli_args) {
+        Ok(true) => return,
+        Ok(false) => {}
+        Err(error) => {
+            eprintln!("Basalt windows command failed: {error:#}");
+            std::process::exit(1);
+        }
+    }
+
     if cli_args.first().is_some_and(|arg| arg == "watch") {
         if let Err(error) = run_watch_mode(&cli_args[1..]) {
             eprintln!("Basalt watch failed: {error:#}");
@@ -1082,6 +1618,10 @@ pub fn run() {
 
             if let Err(error) = refresh_app_menu(app.handle(), state.inner()) {
                 eprintln!("Failed to initialize app menu: {error}");
+            }
+
+            if let Err(error) = start_control_server(app.handle().clone()) {
+                eprintln!("Basalt control server failed to start: {error:#}");
             }
 
             let Some(main_window) = app.get_webview_window("main") else {

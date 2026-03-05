@@ -29,10 +29,26 @@ Pipe Markdown directly into Basalt:
 cat path/to/file.md | basalt
 ```
 
+`basalt` launches the app and then immediately returns control to the terminal.
+
 Watch a directory and open every new file:
 
 ```bash
 basalt watch path/to/directory
+```
+
+List currently open Basalt document windows:
+
+```bash
+basalt windows list
+basalt windows list --json
+```
+
+Close windows from the terminal:
+
+```bash
+basalt windows close path/to/file.md
+basalt windows close --label doc-3
 ```
 
 You can also run the local launcher directly:
@@ -57,7 +73,7 @@ Optional custom install path:
 ./bin/install-cli /your/path/on/PATH
 ```
 
-The installer runs `npm run build`, compiles a release binary with Cargo, and installs it into your target directory.
+The installer runs `npm run tauri build` and links the Basalt launcher.
 
 ## Development
 
