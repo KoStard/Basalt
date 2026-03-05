@@ -216,6 +216,20 @@ fn open_in_vscode(window: WebviewWindow, state: tauri::State<AppState>) -> Resul
     Ok(())
 }
 
+#[tauri::command]
+fn reveal_in_finder(window: WebviewWindow, state: tauri::State<AppState>) -> Result<(), String> {
+    let path = active_document_for_window(&window, state.inner())?;
+    Command::new("open")
+        .arg("-R")
+        .arg(&path)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|error| format!("Unable to reveal '{}': {error}", path_display(&path)))?;
+    Ok(())
+}
+
 fn active_document_for_window(window: &WebviewWindow, state: &AppState) -> Result<PathBuf, String> {
     let guard = state
         .documents
@@ -679,10 +693,29 @@ fn spawn_document_window(app: &AppHandle, state: &AppState, target: PathBuf) -> 
     }
 
     let label = format!("doc-{}", state.next_window.fetch_add(1, Ordering::Relaxed));
-    let window = WebviewWindowBuilder::new(app, &label, WebviewUrl::App("index.html".into()))
+
+    // Cascade: offset from the last opened window's position.
+    let cascade_offset = {
+        let documents = state.documents.lock().map_err(|_| String::new()).ok();
+        documents.and_then(|docs| {
+            docs.keys()
+                .filter_map(|l| app.get_webview_window(l))
+                .filter_map(|w| w.outer_position().ok())
+                .max_by_key(|p| p.x + p.y)
+                .map(|p| (p.x as f64 + 26.0, p.y as f64 + 26.0))
+        })
+    };
+
+    let mut builder = WebviewWindowBuilder::new(app, &label, WebviewUrl::App("index.html".into()))
         .title(&title_for_document(&normalized))
         .inner_size(320.0, 720.0)
-        .min_inner_size(320.0, 240.0)
+        .min_inner_size(320.0, 240.0);
+
+    if let Some((x, y)) = cascade_offset {
+        builder = builder.position(x, y);
+    }
+
+    let window = builder
         .build()
         .map_err(|error| format!("Failed to create document window: {error}"))?;
 
@@ -1442,11 +1475,10 @@ fn looks_external_reference(reference: &str) -> bool {
 }
 
 fn title_for_document(path: &Path) -> String {
-    let name = path
-        .file_name()
+    path.file_name()
         .and_then(|value| value.to_str())
-        .unwrap_or("Untitled");
-    format!("{name} - Basalt")
+        .unwrap_or("Untitled")
+        .to_string()
 }
 
 fn read_document_text(path: &Path) -> std::io::Result<String> {
@@ -1678,7 +1710,8 @@ pub fn run() {
             open_document_path,
             resolve_references,
             open_reference,
-            open_in_vscode
+            open_in_vscode,
+            reveal_in_finder
         ])
         .build(tauri::generate_context!())
         .expect("error while building Basalt application")

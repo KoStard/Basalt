@@ -57,6 +57,8 @@ let selectedCommandIndex = 0;
 let isPaletteOpen = false;
 let activeTheme: ThemeId = "obsidian";
 let previewedTheme: ThemeId | null = null;
+let currentDoc: LoadedDocument | null = null;
+let isSourceView = false;
 
 let isFindOpen = false;
 let searchMatches: HTMLElement[] = [];
@@ -555,6 +557,8 @@ async function renderDocument(document: LoadedDocument): Promise<void> {
   }
 
   clearSearchHighlights();
+  currentDoc = document;
+  isSourceView = false;
 
   if (pathEl) {
     pathEl.textContent = document.path;
@@ -1005,6 +1009,108 @@ function buildThemeCommands(): PaletteCommand[] {
 function buildCommands(): PaletteCommand[] {
   return [
     ...buildThemeCommands(),
+    {
+      id: "copy-path",
+      label: "Copy Path",
+      keywords: "copy path file location clipboard",
+      run: async () => {
+        const path = pathEl?.textContent?.trim();
+        if (!path || path.startsWith("No file")) {
+          setStatus("No file is open.", true);
+          return;
+        }
+        await navigator.clipboard.writeText(path);
+        setStatus("Path copied to clipboard.");
+      },
+    },
+    {
+      id: "copy-filename",
+      label: "Copy Filename",
+      keywords: "copy filename basename clipboard",
+      run: async () => {
+        const path = pathEl?.textContent?.trim();
+        if (!path || path.startsWith("No file")) {
+          setStatus("No file is open.", true);
+          return;
+        }
+        const name = path.split("/").pop() ?? path;
+        await navigator.clipboard.writeText(name);
+        setStatus("Filename copied to clipboard.");
+      },
+    },
+    {
+      id: "copy-raw-markdown",
+      label: "Copy Raw Markdown",
+      keywords: "copy raw markdown source text clipboard",
+      run: async () => {
+        if (!currentDoc) {
+          setStatus("No document is open.", true);
+          return;
+        }
+        await navigator.clipboard.writeText(currentDoc.content);
+        setStatus("Raw Markdown copied to clipboard.");
+      },
+    },
+    {
+      id: "copy-as-html",
+      label: "Copy as HTML",
+      keywords: "copy html rendered clipboard",
+      run: async () => {
+        if (!viewerEl) {
+          return;
+        }
+        await navigator.clipboard.writeText(viewerEl.innerHTML);
+        setStatus("HTML copied to clipboard.");
+      },
+    },
+    {
+      id: "reveal-in-finder",
+      label: "Reveal in Finder",
+      keywords: "reveal finder folder directory show",
+      run: async () => {
+        try {
+          await invoke("reveal_in_finder");
+          setStatus("Revealed in Finder.");
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          setStatus(`Unable to reveal in Finder: ${message}`, true);
+        }
+      },
+    },
+    {
+      id: "toggle-source",
+      label: "Toggle Source View",
+      keywords: "source raw toggle view markdown",
+      run: () => {
+        if (!viewerEl || !currentDoc) {
+          setStatus("No document is open.", true);
+          return;
+        }
+        isSourceView = !isSourceView;
+        if (isSourceView) {
+          viewerEl.innerHTML = `<pre><code>${escapeHtml(currentDoc.content)}</code></pre>`;
+          setStatus("Source view.");
+        } else {
+          void renderDocument(currentDoc).then(() => setStatus("Rendered view."));
+        }
+      },
+    },
+    {
+      id: "export-pdf",
+      label: "Export / Print PDF",
+      keywords: "export print pdf save",
+      run: () => {
+        window.print();
+      },
+    },
+    {
+      id: "close-window",
+      label: "Close Window",
+      keywords: "close window quit exit",
+      run: () => {
+        window.close();
+      },
+    },
     {
       id: "reload",
       label: "Reload Document",
