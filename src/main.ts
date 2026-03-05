@@ -3,6 +3,7 @@ import { marked } from "marked";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { applyThemeVariables, currentThemeLabel, DEFAULT_THEME_ID, isThemeId, THEMES, type ThemeId } from "./themes";
 
 type LoadedDocument = {
   path: string;
@@ -26,20 +27,7 @@ type PaletteCommand = {
   run: () => Promise<void> | void;
 };
 
-const THEMES = [
-  { id: "obsidian", label: "Obsidian Night", keywords: "dark obsidian night" },
-  { id: "paper", label: "Graph Paper", keywords: "light paper graph" },
-  { id: "grove", label: "Moss Grove", keywords: "green grove moss" },
-  { id: "reactor", label: "Arc Reactor", keywords: "neon blue stark tech futuristic" },
-  { id: "foundry", label: "Foundry Steel", keywords: "industrial graphite steel workshop amber" },
-  { id: "hud", label: "HUD Crimson", keywords: "red cockpit visor tactical command" },
-  { id: "helios", label: "Helios Gold", keywords: "light gold titanium luxury bright" },
-] as const;
-
-type ThemeId = (typeof THEMES)[number]["id"];
-
 const THEME_STORAGE_KEY = "basalt.theme";
-const THEME_IDS = new Set<ThemeId>(THEMES.map((theme) => theme.id));
 const READER_FONT_SIZE_STORAGE_KEY = "basalt.readerFontSize";
 const READER_FONT_SIZE_DEFAULT = 1.03;
 const READER_FONT_SIZE_MIN = 0.82;
@@ -81,18 +69,14 @@ function setStatus(message: string, isError = false): void {
   statusTextEl.dataset.tone = isError ? "error" : "neutral";
 }
 
-function currentThemeLabel(theme: ThemeId): string {
-  return THEMES.find((entry) => entry.id === theme)?.label ?? theme;
-}
-
 function applyTheme(theme: ThemeId): void {
-  document.documentElement.dataset.theme = theme;
+  applyThemeVariables(document.documentElement, theme);
   localStorage.setItem(THEME_STORAGE_KEY, theme);
 }
 
 function restoreTheme(): void {
   const stored = localStorage.getItem(THEME_STORAGE_KEY);
-  const nextTheme: ThemeId = stored && THEME_IDS.has(stored as ThemeId) ? (stored as ThemeId) : "obsidian";
+  const nextTheme: ThemeId = stored && isThemeId(stored) ? stored : DEFAULT_THEME_ID;
   applyTheme(nextTheme);
 }
 
