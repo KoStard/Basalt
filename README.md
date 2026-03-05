@@ -35,7 +35,7 @@ You can also run the local launcher directly:
 
 ## Install as a CLI
 
-Install globally by compiling and symlinking:
+Install globally by compiling and copying the binary:
 
 ```bash
 ./bin/install-cli
@@ -48,7 +48,7 @@ Optional custom install path:
 ./bin/install-cli /your/path/on/PATH
 ```
 
-The installer runs `npm run tauri build` and links the resulting executable.
+The installer runs `npm run build`, compiles a release binary with Cargo, and installs it into your target directory.
 
 ## Development
 

@@ -6,12 +6,12 @@ BUNDLE_BIN="${ROOT_DIR}/src-tauri/target/release/bundle/macos/Basalt.app/Content
 RELEASE_BIN="${ROOT_DIR}/src-tauri/target/release/basalt"
 DEBUG_BIN="${ROOT_DIR}/src-tauri/target/debug/basalt"
 
-if [[ -x "${BUNDLE_BIN}" ]]; then
-  exec "${BUNDLE_BIN}" "$@"
-fi
-
 if [[ -x "${RELEASE_BIN}" ]]; then
   exec "${RELEASE_BIN}" "$@"
+fi
+
+if [[ -x "${BUNDLE_BIN}" ]]; then
+  exec "${BUNDLE_BIN}" "$@"
 fi
 
 if [[ -x "${DEBUG_BIN}" ]]; then
