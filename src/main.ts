@@ -312,13 +312,26 @@ function runFindSearch(query: string): void {
   }
 }
 
+function setFindPanelVisibility(isOpen: boolean): void {
+  if (!findPanelEl) {
+    return;
+  }
+
+  findPanelEl.hidden = !isOpen;
+  findPanelEl.setAttribute("aria-hidden", String(!isOpen));
+  isFindOpen = isOpen;
+}
+
 function openFindPanel(): void {
   if (!findPanelEl || !findInputEl) {
     return;
   }
 
-  findPanelEl.hidden = false;
-  isFindOpen = true;
+  if (isPaletteOpen) {
+    closeCommandPalette();
+  }
+
+  setFindPanelVisibility(true);
 
   window.requestAnimationFrame(() => {
     findInputEl.focus();
@@ -329,11 +342,7 @@ function openFindPanel(): void {
 }
 
 function closeFindPanel(): void {
-  if (findPanelEl) {
-    findPanelEl.hidden = true;
-  }
-
-  isFindOpen = false;
+  setFindPanelVisibility(false);
   if (findInputEl) {
     findInputEl.value = "";
   }
@@ -733,6 +742,8 @@ async function runCommandByIndex(index: number): Promise<void> {
 }
 
 function bindEvents(): void {
+  setFindPanelVisibility(false);
+
   vscodeBtn?.addEventListener("click", () => {
     void openCurrentFileInVSCode();
   });
