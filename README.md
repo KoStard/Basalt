@@ -1,7 +1,59 @@
-# Tauri + Vanilla TS
+# Basalt
 
-This template should help get you started developing with Tauri in vanilla HTML, CSS and Typescript.
+Basalt is a lightweight Tauri-based Markdown viewer designed for agent-generated output.
 
-## Recommended IDE Setup
+## What it does
 
-- [VS Code](https://code.visualstudio.com/) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
+- Opens one or many Markdown files from the terminal.
+- Accepts directories and opens all Markdown files inside (recursive).
+- Renders local images referenced from Markdown.
+- Opens Markdown references in a new window when clicked.
+- Includes an `Open in VS Code` button.
+- Supports multiple built-in themes inspired by an Obsidian-style reading experience.
+- Includes a `watch` mode that opens new files as they appear.
+
+## Terminal usage
+
+After building, run:
+
+```bash
+basalt path/to/file.md path/to/other.md path/to/directory
+```
+
+Watch a directory and open every new Markdown file:
+
+```bash
+basalt watch path/to/directory
+```
+
+## Development
+
+```bash
+npm install
+npm run tauri dev
+```
+
+Pass startup paths while running in dev mode:
+
+```bash
+npm run tauri dev -- ./notes.md ./reports
+```
+
+Run watch mode in dev:
+
+```bash
+npm run tauri dev -- watch ./reports
+```
+
+## Build
+
+```bash
+npm run tauri build
+```
+
+On macOS, the bundled app executable is inside `Basalt.app` and accepts CLI arguments.
+
+## Notes
+
+- Basalt can open any file path explicitly passed in the CLI, but directory scanning and watch mode target Markdown files (`.md`, `.markdown`, `.mdown`, `.mkd`, `.mdx`).
+- The VS Code button requires the `code` command to be available in your shell `PATH`.
