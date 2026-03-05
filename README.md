@@ -12,7 +12,7 @@ Basalt is a lightweight Tauri-based document viewer designed for agent-generated
 - Renders local images referenced from Markdown.
 - Opens Markdown references in a new window when clicked.
 - Includes an `Open in VS Code` button.
-- Supports seven built-in themes: Obsidian Night, Graph Paper, Moss Grove, Arc Reactor, Foundry Steel, HUD Crimson, and Helios Gold (switch via `Ctrl/Cmd+Shift+P`).
+- Supports nine built-in themes: Obsidian Night, Graph Paper, Moss Grove, Arc Reactor, Foundry Steel, HUD Crimson, Helios Gold, Kanagawa Lotus, and Gruvbox Light (switch via `Ctrl/Cmd+Shift+P`).
 - Includes a `watch` mode that opens new files as they appear.
 
 ## Terminal usage
@@ -93,6 +93,15 @@ Run watch mode in dev:
 ```bash
 npm run tauri dev -- watch ./reports
 ```
+
+## Add a theme
+
+Theme definitions are centralized in `src/themes.ts`.
+
+1. Add a new object to the `THEMES` array with a unique `id`, `label`, and search `keywords`.
+2. Fill in all `tokens` keys: `surface`, `surface-alt`, `panel`, `text`, `muted`, `accent`, `accent-strong`, `line`, `code-bg`, `quote`, `button-bg`, `button-hover`, `status-bg`.
+3. Run `npm run build` to validate TypeScript and bundling.
+4. Launch Basalt and switch via `Ctrl/Cmd+Shift+P` to confirm the new theme appears and renders correctly.
 
 ## Build
 
