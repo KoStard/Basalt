@@ -7,7 +7,8 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 type LoadedDocument = {
   path: string;
   fileName: string;
-  markdown: string;
+  content: string;
+  isMarkdown: boolean;
 };
 
 type ResolvedReferenceMap = Record<string, string | null>;
@@ -98,13 +99,13 @@ function renderEmptyState(message?: string): void {
 
   const details = message
     ? `<p class="empty-error">${escapeHtml(message)}</p>`
-    : "<p>Launch Basalt from your terminal with one or more Markdown files.</p>";
+    : "<p>Launch Basalt from your terminal with one or more files.</p>";
 
   viewerEl.innerHTML = `
     <section class="empty-state">
       <h1>Basalt is waiting for a document</h1>
       ${details}
-      <pre><code>basalt ./notes/today.md ./reports ./summary.md</code></pre>
+      <pre><code>basalt ./notes/today.md ./reports ./config.json</code></pre>
       <pre><code>basalt watch ./reports</code></pre>
     </section>
   `;
@@ -201,6 +202,13 @@ async function hydrateReferences(): Promise<void> {
   });
 }
 
+function asFencedCodeBlock(content: string): string {
+  const runs = content.match(/`+/g) ?? [];
+  const longest = runs.reduce((max, run) => Math.max(max, run.length), 0);
+  const fence = "`".repeat(Math.max(3, longest + 1));
+  return `${fence}\n${content}\n${fence}`;
+}
+
 async function renderDocument(document: LoadedDocument): Promise<void> {
   if (!viewerEl) {
     return;
@@ -211,11 +219,14 @@ async function renderDocument(document: LoadedDocument): Promise<void> {
     pathEl.title = document.path;
   }
 
-  const rendered = marked.parse(document.markdown, { async: false }) as string;
+  const source = document.isMarkdown ? document.content : asFencedCodeBlock(document.content);
+  const rendered = marked.parse(source, { async: false }) as string;
   const sanitized = DOMPurify.sanitize(rendered);
   viewerEl.innerHTML = sanitized;
 
-  await hydrateReferences();
+  if (document.isMarkdown) {
+    await hydrateReferences();
+  }
 }
 
 async function loadDocument(reason: string): Promise<void> {

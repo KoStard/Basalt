@@ -5,13 +5,13 @@ This file defines repo-specific instructions for coding agents working in Basalt
 ## Project Snapshot
 
 - App type: Tauri 2 desktop app with a Vite + TypeScript frontend.
-- Purpose: open/render Markdown files passed via CLI, including directory expansion and watch mode.
+- Purpose: open/render files passed via CLI, including directory expansion and watch mode.
 - Frontend runtime: `src/main.ts` + `src/styles.css`
 - Backend runtime: `src-tauri/src/lib.rs`
 
 ## Repository Map
 
-- `src/main.ts`: Markdown render pipeline, link/image hydration, theme switching, command palette, Tauri event listeners.
+- `src/main.ts`: Document render pipeline, link/image hydration, theme switching, command palette, Tauri event listeners.
 - `src/styles.css`: all theme tokens and UI styling.
 - `src-tauri/src/lib.rs`: CLI argument handling, file discovery, watch mode, window management, Tauri commands.
 - `src-tauri/src/main.rs`: entrypoint calling `basalt_lib::run()`.
@@ -29,9 +29,9 @@ This file defines repo-specific instructions for coding agents working in Basalt
 
 ## Implementation Rules
 
-- Keep `basalt <file|dir>...` behavior stable: open Markdown files and expand directories recursively.
-- Keep `basalt watch <directory>` behavior stable: watch recursively and open newly seen Markdown files.
-- Preserve supported Markdown extensions in Rust unless intentionally changing product behavior.
+- Keep `basalt <file|dir>...` behavior stable: open files and expand directories recursively.
+- Keep `basalt watch <directory>` behavior stable: watch recursively and open newly seen files.
+- Preserve supported Markdown extensions in Rust for Markdown-vs-code-block rendering unless intentionally changing product behavior.
 - If you add or rename a Tauri command, update both `src-tauri/src/lib.rs` and calls in `src/main.ts`.
 - If link/reference behavior changes, keep `resolve_references` in Rust and hydration logic in `src/main.ts` consistent.
 - Do not introduce extra frontend frameworks; keep using vanilla TypeScript + DOM APIs.
