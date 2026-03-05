@@ -1160,5 +1160,13 @@ window.addEventListener("DOMContentLoaded", async () => {
     openFindPanel();
   });
 
+  await listen<string>("basalt://notify", (event) => {
+    alert(event.payload);
+  });
+
+  await listen<string>("basalt://notify-error", (event) => {
+    alert(`Error: ${event.payload}`);
+  });
+
   await loadDocument("Document loaded.");
 });

@@ -28,6 +28,7 @@ const MENU_ID_FILE_OPEN: &str = "file.open";
 const MENU_ID_FILE_OPEN_RECENT_PREFIX: &str = "file.open_recent.";
 const MENU_ID_FILE_NO_RECENTS: &str = "file.open_recent.none";
 const MENU_ID_EDIT_FIND: &str = "edit.find";
+const MENU_ID_TOOLS_INSTALL_CLI: &str = "tools.install_cli";
 const WINDOW_USAGE: &str = "Usage:
   basalt windows list [--json]
   basalt windows close <path>
@@ -228,6 +229,41 @@ fn reveal_in_finder(window: WebviewWindow, state: tauri::State<AppState>) -> Res
         .spawn()
         .map_err(|error| format!("Unable to reveal '{}': {error}", path_display(&path)))?;
     Ok(())
+}
+
+#[tauri::command]
+fn install_cli_tool(_app: AppHandle) -> Result<String, String> {
+    let install_dir = dirs::home_dir()
+        .ok_or("Could not determine home directory")?
+        .join(".local/bin");
+
+    fs::create_dir_all(&install_dir)
+        .map_err(|e| format!("Failed to create {}: {e}", install_dir.display()))?;
+
+    let target = install_dir.join("basalt");
+
+    // Resolve the bundle's MacOS directory from the current executable path.
+    let exe = std::env::current_exe().map_err(|e| format!("Cannot locate executable: {e}"))?;
+    // exe is .app/Contents/MacOS/Basalt — go up to Contents/MacOS for the script to reference
+    let macos_dir = exe
+        .parent()
+        .ok_or("Unexpected executable path structure")?;
+
+    let script = format!(
+        "#!/usr/bin/env bash\nexec \"{}/Basalt\" \"$@\"\n",
+        macos_dir.display()
+    );
+
+    fs::write(&target, script).map_err(|e| format!("Failed to write launcher: {e}"))?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&target, fs::Permissions::from_mode(0o755))
+            .map_err(|e| format!("Failed to set permissions: {e}"))?;
+    }
+
+    Ok(install_dir.display().to_string())
 }
 
 fn active_document_for_window(window: &WebviewWindow, state: &AppState) -> Result<PathBuf, String> {
@@ -514,6 +550,22 @@ fn build_edit_submenu(app: &AppHandle) -> Result<Submenu<tauri::Wry>, String> {
         .map_err(|error| format!("Failed to build Edit submenu: {error}"))
 }
 
+fn build_tools_submenu(app: &AppHandle) -> Result<Submenu<tauri::Wry>, String> {
+    let install_item = MenuItem::with_id(
+        app,
+        MENU_ID_TOOLS_INSTALL_CLI,
+        "Install CLI Tool...",
+        true,
+        None::<&str>,
+    )
+    .map_err(|error| format!("Failed to build Install CLI menu item: {error}"))?;
+
+    SubmenuBuilder::new(app, "Tools")
+        .item(&install_item)
+        .build()
+        .map_err(|error| format!("Failed to build Tools submenu: {error}"))
+}
+
 #[cfg(target_os = "macos")]
 fn build_macos_app_submenu(app: &AppHandle) -> Result<Submenu<tauri::Wry>, String> {
     let package_name = app.package_info().name.clone();
@@ -546,6 +598,7 @@ fn build_app_menu(app: &AppHandle, state: &AppState) -> Result<tauri::menu::Menu
     let recents = recent_paths_snapshot(state)?;
     let file_submenu = build_file_submenu(app, &recents)?;
     let edit_submenu = build_edit_submenu(app)?;
+    let tools_submenu = build_tools_submenu(app)?;
 
     let mut builder = MenuBuilder::new(app);
 
@@ -564,12 +617,13 @@ fn build_app_menu(app: &AppHandle, state: &AppState) -> Result<tauri::menu::Menu
             .item(&app_submenu)
             .item(&file_submenu)
             .item(&edit_submenu)
+            .item(&tools_submenu)
             .item(&window_submenu);
     }
 
     #[cfg(not(target_os = "macos"))]
     {
-        builder = builder.item(&file_submenu).item(&edit_submenu);
+        builder = builder.item(&file_submenu).item(&edit_submenu).item(&tools_submenu);
     }
 
     builder
@@ -616,6 +670,25 @@ fn handle_menu_event(app: &AppHandle, event: MenuEvent) {
     if menu_id == MENU_ID_EDIT_FIND {
         if let Err(error) = window.emit("basalt://focus-search", ()) {
             eprintln!("Failed to dispatch Find action to frontend: {error}");
+        }
+        return;
+    }
+
+    if menu_id == MENU_ID_TOOLS_INSTALL_CLI {
+        match install_cli_tool(app.clone()) {
+            Ok(install_dir) => {
+                let msg = format!(
+                    "basalt installed to {install_dir}/basalt\n\nMake sure {install_dir} is on your PATH."
+                );
+                if let Err(error) = window.emit("basalt://notify", msg) {
+                    eprintln!("Failed to emit install notification: {error}");
+                }
+            }
+            Err(error) => {
+                if let Err(emit_err) = window.emit("basalt://notify-error", error) {
+                    eprintln!("Failed to emit install error: {emit_err}");
+                }
+            }
         }
         return;
     }
@@ -1711,7 +1784,8 @@ pub fn run() {
             resolve_references,
             open_reference,
             open_in_vscode,
-            reveal_in_finder
+            reveal_in_finder,
+            install_cli_tool
         ])
         .build(tauri::generate_context!())
         .expect("error while building Basalt application")
