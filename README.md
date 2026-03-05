@@ -20,10 +20,26 @@ After building, run:
 basalt path/to/file.md path/to/other.md path/to/directory
 ```
 
+`basalt` launches the app and then immediately returns control to the terminal.
+
 Watch a directory and open every new Markdown file:
 
 ```bash
 basalt watch path/to/directory
+```
+
+List currently open Basalt document windows:
+
+```bash
+basalt windows list
+basalt windows list --json
+```
+
+Close windows from the terminal:
+
+```bash
+basalt windows close path/to/file.md
+basalt windows close --label doc-3
 ```
 
 You can also run the local launcher directly:
@@ -48,7 +64,7 @@ Optional custom install path:
 ./bin/install-cli /your/path/on/PATH
 ```
 
-The installer runs `npm run tauri build` and links the resulting executable.
+The installer runs `npm run tauri build` and links the Basalt launcher.
 
 ## Development
 

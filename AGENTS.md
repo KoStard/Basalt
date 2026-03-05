@@ -5,7 +5,7 @@ This file defines repo-specific instructions for coding agents working in Basalt
 ## Project Snapshot
 
 - App type: Tauri 2 desktop app with a Vite + TypeScript frontend.
-- Purpose: open/render Markdown files passed via CLI, including directory expansion and watch mode.
+- Purpose: open/render Markdown files passed via CLI, including directory expansion, watch mode, and window management commands.
 - Frontend runtime: `src/main.ts` + `src/styles.css`
 - Backend runtime: `src-tauri/src/lib.rs`
 
@@ -15,8 +15,8 @@ This file defines repo-specific instructions for coding agents working in Basalt
 - `src/styles.css`: all theme tokens and UI styling.
 - `src-tauri/src/lib.rs`: CLI argument handling, file discovery, watch mode, window management, Tauri commands.
 - `src-tauri/src/main.rs`: entrypoint calling `basalt_lib::run()`.
-- `bin/basalt`: local launcher that prefers bundle/release/debug binaries.
-- `bin/install-cli`: builds and installs/symlinks `basalt` into `~/.local/bin` (or custom path).
+- `bin/basalt`: local launcher that prefers bundle/release/debug binaries and detaches for normal open commands.
+- `bin/install-cli`: builds and installs/symlinks the `basalt` launcher into `~/.local/bin` (or custom path).
 
 ## Canonical Commands
 
@@ -25,12 +25,14 @@ This file defines repo-specific instructions for coding agents working in Basalt
 - Full app dev: `npm run tauri dev`
 - Build frontend: `npm run build`
 - Build app bundle: `npm run tauri build`
-- Local launcher usage: `./bin/basalt <paths...>` or `./bin/basalt watch <directory>`
+- Local launcher usage: `./bin/basalt <paths...>`, `./bin/basalt watch <directory>`, `./bin/basalt windows list`, `./bin/basalt windows close <path>`
 
 ## Implementation Rules
 
 - Keep `basalt <file|dir>...` behavior stable: open Markdown files and expand directories recursively.
+- Keep `basalt <file|dir>...` non-blocking from the terminal via launcher scripts unless intentionally changing UX.
 - Keep `basalt watch <directory>` behavior stable: watch recursively and open newly seen Markdown files.
+- Keep `basalt windows ...` behavior stable: list and close document windows against the running app instance.
 - Preserve supported Markdown extensions in Rust unless intentionally changing product behavior.
 - If you add or rename a Tauri command, update both `src-tauri/src/lib.rs` and calls in `src/main.ts`.
 - If link/reference behavior changes, keep `resolve_references` in Rust and hydration logic in `src/main.ts` consistent.

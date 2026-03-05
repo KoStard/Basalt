@@ -1,25 +1,47 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+resolve_script_path() {
+  local source="${BASH_SOURCE[0]}"
+  while [[ -L "${source}" ]]; do
+    local dir
+    dir="$(cd "$(dirname "${source}")" && pwd)"
+    source="$(readlink "${source}")"
+    [[ "${source}" != /* ]] && source="${dir}/${source}"
+  done
+  printf '%s\n' "${source}"
+}
+
+SCRIPT_PATH="$(resolve_script_path)"
+ROOT_DIR="$(cd "$(dirname "${SCRIPT_PATH}")/.." && pwd)"
 BUNDLE_BIN="${ROOT_DIR}/src-tauri/target/release/bundle/macos/Basalt.app/Contents/MacOS/Basalt"
 RELEASE_BIN="${ROOT_DIR}/src-tauri/target/release/basalt"
 DEBUG_BIN="${ROOT_DIR}/src-tauri/target/debug/basalt"
 
+TARGET_BIN=""
 if [[ -x "${BUNDLE_BIN}" ]]; then
-  exec "${BUNDLE_BIN}" "$@"
+  TARGET_BIN="${BUNDLE_BIN}"
+elif [[ -x "${RELEASE_BIN}" ]]; then
+  TARGET_BIN="${RELEASE_BIN}"
+elif [[ -x "${DEBUG_BIN}" ]]; then
+  TARGET_BIN="${DEBUG_BIN}"
 fi
 
-if [[ -x "${RELEASE_BIN}" ]]; then
-  exec "${RELEASE_BIN}" "$@"
+if [[ -z "${TARGET_BIN}" ]]; then
+  echo "Basalt binary not found." >&2
+  echo "Build it first with one of:" >&2
+  echo "  npm run tauri build" >&2
+  echo "  cargo build --manifest-path ${ROOT_DIR}/src-tauri/Cargo.toml  # fallback only" >&2
+  exit 1
 fi
 
-if [[ -x "${DEBUG_BIN}" ]]; then
-  exec "${DEBUG_BIN}" "$@"
+FIRST_ARG="${1:-}"
+if [[ "${BASALT_FOREGROUND:-}" == "1" ]] || [[ "${FIRST_ARG}" == "watch" ]] || [[ "${FIRST_ARG}" == "windows" ]] || [[ "${FIRST_ARG}" == "window" ]]; then
+  exec "${TARGET_BIN}" "$@"
 fi
 
-echo "Basalt binary not found." >&2
-echo "Build it first with one of:" >&2
-echo "  npm run tauri build" >&2
-echo "  cargo build --manifest-path ${ROOT_DIR}/src-tauri/Cargo.toml  # fallback only" >&2
-exit 1
+if command -v nohup >/dev/null 2>&1; then
+  nohup "${TARGET_BIN}" "$@" >/dev/null 2>&1 &
+else
+  "${TARGET_BIN}" "$@" >/dev/null 2>&1 &
+fi

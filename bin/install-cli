@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 INSTALL_DIR="${1:-$HOME/.local/bin}"
 TARGET_BIN="${INSTALL_DIR}/basalt"
+LAUNCHER_BIN="${ROOT_DIR}/bin/basalt"
 BUNDLE_BIN="${ROOT_DIR}/src-tauri/target/release/bundle/macos/Basalt.app/Contents/MacOS/Basalt"
 RELEASE_BIN="${ROOT_DIR}/src-tauri/target/release/basalt"
 
@@ -15,18 +16,12 @@ echo "Building Tauri app bundle..."
   npm run tauri build
 )
 
-SOURCE_BIN="${BUNDLE_BIN}"
-if [[ ! -x "${SOURCE_BIN}" ]]; then
-  if [[ -x "${RELEASE_BIN}" ]]; then
-    SOURCE_BIN="${RELEASE_BIN}"
-    echo "Warning: bundled executable not found; falling back to raw release binary." >&2
-  else
-    echo "No runnable Basalt executable found after build." >&2
-    exit 1
-  fi
+if [[ ! -x "${BUNDLE_BIN}" && ! -x "${RELEASE_BIN}" ]]; then
+  echo "No runnable Basalt executable found after build." >&2
+  exit 1
 fi
 
-ln -sf "${SOURCE_BIN}" "${TARGET_BIN}"
+ln -sf "${LAUNCHER_BIN}" "${TARGET_BIN}"
 
 echo "Installed: ${TARGET_BIN}"
 if ! command -v basalt >/dev/null 2>&1; then
