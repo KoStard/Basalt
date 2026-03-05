@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+INSTALL_DIR="${1:-$HOME/.local/bin}"
+TARGET_BIN="${INSTALL_DIR}/basalt"
+RELEASE_BIN="${ROOT_DIR}/src-tauri/target/release/basalt"
+
+mkdir -p "${INSTALL_DIR}"
+
+echo "Building frontend bundle..."
+(
+  cd "${ROOT_DIR}"
+  npm run build
+)
+
+echo "Building release binary..."
+cargo build --manifest-path "${ROOT_DIR}/src-tauri/Cargo.toml" --release
+
+ln -sf "${RELEASE_BIN}" "${TARGET_BIN}"
+
+echo "Installed: ${TARGET_BIN}"
+if ! command -v basalt >/dev/null 2>&1; then
+  echo "Add ${INSTALL_DIR} to PATH to use 'basalt' globally."
+fi
