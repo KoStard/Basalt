@@ -5,7 +5,7 @@ This file defines repo-specific instructions for coding agents working in Basalt
 ## Project Snapshot
 
 - App type: Tauri 2 desktop app with a Vite + TypeScript frontend.
-- Purpose: open/render Markdown files passed via CLI, including directory expansion and watch mode.
+- Purpose: open/render Markdown files passed via CLI, including directory expansion, stdin piping, and watch mode.
 - Frontend runtime: `src/main.ts` + `src/styles.css`
 - Backend runtime: `src-tauri/src/lib.rs`
 
@@ -30,6 +30,7 @@ This file defines repo-specific instructions for coding agents working in Basalt
 ## Implementation Rules
 
 - Keep `basalt <file|dir>...` behavior stable: open Markdown files and expand directories recursively.
+- Keep `cat ... | basalt` behavior stable: accept Markdown from stdin and open it in a window.
 - Keep `basalt watch <directory>` behavior stable: watch recursively and open newly seen Markdown files.
 - Preserve supported Markdown extensions in Rust unless intentionally changing product behavior.
 - If you add or rename a Tauri command, update both `src-tauri/src/lib.rs` and calls in `src/main.ts`.

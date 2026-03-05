@@ -4,12 +4,14 @@ use serde::Serialize;
 use std::{
     collections::{HashMap, HashSet},
     fs,
+    io::{self, IsTerminal, Read},
     path::{Path, PathBuf},
     process::{Command, Stdio},
     sync::{
         atomic::{AtomicU64, Ordering},
         Mutex,
     },
+    time::{SystemTime, UNIX_EPOCH},
 };
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 use walkdir::WalkDir;
@@ -277,6 +279,84 @@ fn collect_targets_from_args(args: &[String]) -> Vec<PathBuf> {
     targets
 }
 
+fn collect_piped_input_target() -> Result<Option<PathBuf>> {
+    let stdin = io::stdin();
+    if stdin.is_terminal() {
+        return Ok(None);
+    }
+
+    let mut input = Vec::new();
+    stdin
+        .lock()
+        .read_to_end(&mut input)
+        .context("Failed to read piped input from stdin")?;
+
+    if input.is_empty() {
+        return Ok(None);
+    }
+
+    let markdown = String::from_utf8_lossy(&input);
+    let path = write_piped_markdown_file(&markdown)?;
+    Ok(Some(path))
+}
+
+fn write_piped_markdown_file(markdown: &str) -> Result<PathBuf> {
+    let directory = std::env::temp_dir().join("basalt-stdin");
+    fs::create_dir_all(&directory).with_context(|| {
+        format!(
+            "Unable to create temporary directory '{}'",
+            path_display(&directory)
+        )
+    })?;
+
+    let pid = std::process::id();
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+
+    for attempt in 0..128 {
+        let file_name = if attempt == 0 {
+            format!("stdin-{pid}-{timestamp}.md")
+        } else {
+            format!("stdin-{pid}-{timestamp}-{attempt}.md")
+        };
+        let path = directory.join(file_name);
+
+        if path.exists() {
+            continue;
+        }
+
+        fs::write(&path, markdown)
+            .with_context(|| format!("Unable to write piped input to '{}'", path_display(&path)))?;
+        return Ok(path);
+    }
+
+    Err(anyhow!(
+        "Unable to allocate a temporary file for piped input in '{}'",
+        path_display(&directory)
+    ))
+}
+
+fn relay_target_to_instance(path: &Path) -> Result<()> {
+    let executable = std::env::current_exe().context("Unable to locate current executable")?;
+
+    Command::new(executable)
+        .arg(path)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .with_context(|| {
+            format!(
+                "Unable to launch Basalt for piped input '{}'",
+                path_display(path)
+            )
+        })?;
+
+    Ok(())
+}
+
 fn collect_markdown_files(directory: &Path) -> Vec<PathBuf> {
     let mut files: Vec<PathBuf> = WalkDir::new(directory)
         .into_iter()
@@ -511,6 +591,23 @@ pub fn run() {
             std::process::exit(1);
         }
         return;
+    }
+
+    if cli_args.is_empty() {
+        match collect_piped_input_target() {
+            Ok(Some(path)) => {
+                if let Err(error) = relay_target_to_instance(&path) {
+                    eprintln!("Basalt stdin handoff failed: {error:#}");
+                    std::process::exit(1);
+                }
+                return;
+            }
+            Ok(None) => {}
+            Err(error) => {
+                eprintln!("Basalt stdin processing failed: {error:#}");
+                std::process::exit(1);
+            }
+        }
     }
 
     let startup_targets = collect_targets_from_args(&cli_args);
