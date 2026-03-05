@@ -1,0 +1,8 @@
+title: Basalt
+description: A lightweight terminal-first Markdown viewer for macOS.
+theme: minima
+url: "https://kostard.github.io"
+baseurl: "/Basalt"
+
+minima:
+  skin: dark
