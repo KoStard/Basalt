@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "basalt",
+  "productName": "Basalt",
   "version": "0.1.0",
   "identifier": "com.kostard.basalt",
   "build": {
@@ -13,9 +13,11 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "basalt",
-        "width": 800,
-        "height": 600
+        "title": "Basalt",
+        "width": 1200,
+        "height": 820,
+        "minWidth": 520,
+        "minHeight": 420
       }
     ],
     "security": {
