@@ -1,11 +1,13 @@
 # Basalt
 
-Basalt is a lightweight Tauri-based Markdown viewer designed for agent-generated output.
+Basalt is a lightweight Tauri-based document viewer designed for agent-generated output.
 
 ## What it does
 
-- Opens one or many Markdown files from the terminal.
-- Accepts directories and opens all Markdown files inside (recursive).
+- Opens one or many files from the terminal.
+- Accepts directories and opens all files inside (recursive).
+- Renders Markdown files as rich content.
+- Renders non-Markdown files as code blocks.
 - Accepts piped Markdown from standard input (for example, `cat notes.md | basalt`).
 - Renders local images referenced from Markdown.
 - Opens Markdown references in a new window when clicked.
@@ -18,7 +20,7 @@ Basalt is a lightweight Tauri-based Markdown viewer designed for agent-generated
 After building, run:
 
 ```bash
-basalt path/to/file.md path/to/other.md path/to/directory
+basalt path/to/file.md path/to/config.json path/to/directory
 ```
 
 Pipe Markdown directly into Basalt:
@@ -27,7 +29,7 @@ Pipe Markdown directly into Basalt:
 cat path/to/file.md | basalt
 ```
 
-Watch a directory and open every new Markdown file:
+Watch a directory and open every new file:
 
 ```bash
 basalt watch path/to/directory
@@ -86,6 +88,6 @@ On macOS, the bundled app executable is inside `Basalt.app` and accepts CLI argu
 
 ## Notes
 
-- Basalt can open any file path explicitly passed in the CLI, but directory scanning and watch mode target Markdown files (`.md`, `.markdown`, `.mdown`, `.mkd`, `.mdx`).
+- Markdown files (`.md`, `.markdown`, `.mdown`, `.mkd`, `.mdx`) render as Markdown; other files render as code blocks.
 - Piped stdin content is saved to a temporary Markdown file before opening so it works with single-instance forwarding.
 - The VS Code button requires the `code` command to be available in your shell `PATH`.

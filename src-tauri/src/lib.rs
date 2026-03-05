@@ -29,7 +29,8 @@ struct AppState {
 struct LoadedDocument {
     path: String,
     file_name: String,
-    markdown: String,
+    content: String,
+    is_markdown: bool,
 }
 
 #[derive(Clone, Serialize)]
@@ -44,18 +45,19 @@ fn load_document(
     state: tauri::State<AppState>,
 ) -> Result<LoadedDocument, String> {
     let path = active_document_for_window(&window, &state)?;
-    let markdown = fs::read_to_string(&path)
+    let content = read_document_text(&path)
         .map_err(|error| format!("Failed to read '{}': {error}", path_display(&path)))?;
     let file_name = path
         .file_name()
         .and_then(|value| value.to_str())
         .map(ToOwned::to_owned)
-        .unwrap_or_else(|| "Untitled.md".to_string());
+        .unwrap_or_else(|| "Untitled".to_string());
 
     Ok(LoadedDocument {
         path: path_display(&path),
         file_name,
-        markdown,
+        content,
+        is_markdown: is_markdown_file(&path),
     })
 }
 
@@ -90,7 +92,7 @@ fn open_reference(
     };
 
     if target.is_dir() {
-        let targets = collect_markdown_files(&target);
+        let targets = collect_files_recursively(&target);
         if targets.is_empty() {
             return Ok(());
         }
@@ -267,10 +269,10 @@ fn collect_targets_from_args(args: &[String]) -> Vec<PathBuf> {
         }
 
         if absolute.is_dir() {
-            for markdown in collect_markdown_files(&absolute) {
-                let key = path_key(&markdown);
+            for file in collect_files_recursively(&absolute) {
+                let key = path_key(&file);
                 if seen.insert(key) {
-                    targets.push(markdown);
+                    targets.push(file);
                 }
             }
         }
@@ -357,11 +359,11 @@ fn relay_target_to_instance(path: &Path) -> Result<()> {
     Ok(())
 }
 
-fn collect_markdown_files(directory: &Path) -> Vec<PathBuf> {
+fn collect_files_recursively(directory: &Path) -> Vec<PathBuf> {
     let mut files: Vec<PathBuf> = WalkDir::new(directory)
         .into_iter()
         .filter_map(|entry| entry.ok())
-        .filter(|entry| entry.file_type().is_file() && is_markdown_file(entry.path()))
+        .filter(|entry| entry.file_type().is_file())
         .map(|entry| fs::canonicalize(entry.path()).unwrap_or_else(|_| entry.path().to_path_buf()))
         .collect();
 
@@ -458,8 +460,13 @@ fn title_for_document(path: &Path) -> String {
     let name = path
         .file_name()
         .and_then(|value| value.to_str())
-        .unwrap_or("Untitled.md");
+        .unwrap_or("Untitled");
     format!("{name} - Basalt")
+}
+
+fn read_document_text(path: &Path) -> std::io::Result<String> {
+    let bytes = fs::read(path)?;
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
 fn path_display(path: &Path) -> String {
@@ -501,7 +508,7 @@ fn run_watch_mode(args: &[String]) -> Result<()> {
     }
 
     let mut known = HashSet::new();
-    for existing in collect_markdown_files(&directory) {
+    for existing in collect_files_recursively(&directory) {
         known.insert(path_key(&existing));
     }
 
@@ -534,7 +541,7 @@ fn handle_watch_event(
     }
 
     for candidate in paths {
-        if !candidate.exists() || !candidate.is_file() || !is_markdown_file(&candidate) {
+        if !candidate.exists() || !candidate.is_file() {
             continue;
         }
 
