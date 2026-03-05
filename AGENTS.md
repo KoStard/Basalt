@@ -17,7 +17,7 @@ This file defines repo-specific instructions for coding agents working in Basalt
 - `src/styles.css`: base token defaults and UI styling.
 - `src/themes.ts`: built-in theme metadata and token values used by theme switching.
 - `src-tauri/src/lib.rs`: CLI argument handling, file discovery, watch mode, window management, Tauri commands.
-- `src-tauri/src/main.rs`: entrypoint calling `basalt_lib::run()`.
+- `src-tauri/tauri.conf.json`: Tauri build config. The `bundle.macOS.info` block injects `CFBundleDocumentTypes` into the generated `Info.plist`, declaring Basalt as a handler for Markdown file extensions. This is required for macOS to allow setting Basalt as the default app for `.md` files.
 - `bin/basalt`: local launcher that prefers bundle/release/debug binaries and detaches for normal open commands.
 - `bin/install-cli`: builds and installs/symlinks the `basalt` launcher into `~/.local/bin` (or custom path).
 

@@ -73,7 +73,24 @@ Optional custom install path:
 ./bin/install-cli /your/path/on/PATH
 ```
 
-The installer runs `npm run tauri build` and links the Basalt launcher.
+The installer runs `npm run tauri build`, copies `Basalt.app` to `/Applications/`, and links the Basalt launcher.
+
+## Set as default app for Markdown files
+
+After installing, you can make Basalt the default app for `.md` files.
+
+**Via Finder:**
+1. Right-click any `.md` file → "Get Info"
+2. Under "Open with", select Basalt
+3. Click "Change All..."
+
+**Via terminal** (requires `brew install duti`):
+
+```bash
+duti -s com.kostard.basalt .md all
+```
+
+Basalt declares support for Markdown file types in its `Info.plist` (`CFBundleDocumentTypes`), which is required for macOS to allow it as a handler.
 
 ## Development
 

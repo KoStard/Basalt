@@ -23,6 +23,12 @@ if [[ ! -x "${BUNDLE_BIN_LOWER}" && ! -x "${BUNDLE_BIN_CAMEL}" && ! -x "${RELEAS
   exit 1
 fi
 
+APP_BUNDLE="${ROOT_DIR}/src-tauri/target/release/bundle/macos/Basalt.app"
+if [[ -d "${APP_BUNDLE}" ]]; then
+  echo "Installing Basalt.app to /Applications/..."
+  cp -r "${APP_BUNDLE}" /Applications/
+fi
+
 ln -sf "${LAUNCHER_BIN}" "${TARGET_BIN}"
 
 echo "Installed: ${TARGET_BIN}"
