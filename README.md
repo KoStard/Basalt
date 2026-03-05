@@ -48,6 +48,8 @@ Optional custom install path:
 ./bin/install-cli /your/path/on/PATH
 ```
 
+The installer runs `npm run tauri build` and links the resulting executable.
+
 ## Development
 
 ```bash
