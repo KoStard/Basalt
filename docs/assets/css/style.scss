@@ -1,0 +1,88 @@
+---
+---
+/* Graph Paper theme — matches the app's light theme and icon background */
+:root {
+  --bg: #f2efe8;
+  --bg-alt: #ece8df;
+  --panel: #fffcf5;
+  --text: #2a2621;
+  --muted: #6e655b;
+  --accent: #8c5a2f;
+  --accent-strong: #774a22;
+  --line: #d9cfbf;
+  --code-bg: #f6f1e8;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.site-header {
+  background: var(--bg-alt);
+  border-bottom: 1px solid var(--line);
+}
+
+.site-header .site-title,
+.site-header .site-title:visited {
+  color: var(--accent);
+}
+
+.site-nav .page-link {
+  color: var(--text);
+}
+
+.site-footer {
+  background: var(--bg-alt);
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+}
+
+h1, h2, h3 {
+  color: var(--text);
+}
+
+a {
+  color: var(--accent);
+}
+
+a:hover {
+  color: var(--accent-strong);
+}
+
+a strong {
+  color: var(--accent);
+}
+
+code, pre {
+  background: var(--code-bg);
+  border: 1px solid var(--line);
+  color: var(--text);
+}
+
+pre code {
+  border: none;
+}
+
+blockquote {
+  border-left: 3px solid var(--accent);
+  color: var(--muted);
+}
+
+table th {
+  background: var(--bg-alt);
+  color: var(--text);
+}
+
+table td, table th {
+  border: 1px solid var(--line);
+}
+
+table tr:nth-child(even) {
+  background: var(--bg-alt);
+}
+
+hr {
+  border-color: var(--line);
+}
