@@ -9,7 +9,7 @@ Basalt is a lightweight Tauri-based Markdown viewer designed for agent-generated
 - Renders local images referenced from Markdown.
 - Opens Markdown references in a new window when clicked.
 - Includes an `Open in VS Code` button.
-- Supports multiple built-in themes inspired by an Obsidian-style reading experience.
+- Supports seven built-in themes: Obsidian Night, Graph Paper, Moss Grove, Arc Reactor, Foundry Steel, HUD Crimson, and Helios Gold (switch via `Ctrl/Cmd+Shift+P`).
 - Includes a `watch` mode that opens new files as they appear.
 
 ## Terminal usage

@@ -23,6 +23,10 @@ const THEMES = [
   { id: "obsidian", label: "Obsidian Night", keywords: "dark obsidian night" },
   { id: "paper", label: "Graph Paper", keywords: "light paper graph" },
   { id: "grove", label: "Moss Grove", keywords: "green grove moss" },
+  { id: "reactor", label: "Arc Reactor", keywords: "neon blue stark tech futuristic" },
+  { id: "foundry", label: "Foundry Steel", keywords: "industrial graphite steel workshop amber" },
+  { id: "hud", label: "HUD Crimson", keywords: "red cockpit visor tactical command" },
+  { id: "helios", label: "Helios Gold", keywords: "light gold titanium luxury bright" },
 ] as const;
 
 type ThemeId = (typeof THEMES)[number]["id"];
@@ -480,35 +484,21 @@ function bindEvents(): void {
   });
 }
 
+function buildThemeCommands(): PaletteCommand[] {
+  return THEMES.map((theme) => ({
+    id: `theme-${theme.id}`,
+    label: `Theme: ${theme.label}`,
+    keywords: `theme ${theme.keywords}`,
+    run: () => {
+      applyTheme(theme.id);
+      setStatus(`Theme switched to ${currentThemeLabel(theme.id)}.`);
+    },
+  }));
+}
+
 function buildCommands(): PaletteCommand[] {
   return [
-    {
-      id: "theme-obsidian",
-      label: "Theme: Obsidian Night",
-      keywords: `theme ${THEMES[0].keywords}`,
-      run: () => {
-        applyTheme("obsidian");
-        setStatus(`Theme switched to ${currentThemeLabel("obsidian")}.`);
-      },
-    },
-    {
-      id: "theme-paper",
-      label: "Theme: Graph Paper",
-      keywords: `theme ${THEMES[1].keywords}`,
-      run: () => {
-        applyTheme("paper");
-        setStatus(`Theme switched to ${currentThemeLabel("paper")}.`);
-      },
-    },
-    {
-      id: "theme-grove",
-      label: "Theme: Moss Grove",
-      keywords: `theme ${THEMES[2].keywords}`,
-      run: () => {
-        applyTheme("grove");
-        setStatus(`Theme switched to ${currentThemeLabel("grove")}.`);
-      },
-    },
+    ...buildThemeCommands(),
     {
       id: "reload",
       label: "Reload Document",

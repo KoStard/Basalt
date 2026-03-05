@@ -8,6 +8,7 @@ This file defines repo-specific instructions for coding agents working in Basalt
 - Purpose: open/render Markdown files passed via CLI, including directory expansion and watch mode.
 - Frontend runtime: `src/main.ts` + `src/styles.css`
 - Backend runtime: `src-tauri/src/lib.rs`
+- Built-in themes: `obsidian`, `paper`, `grove`, `reactor`, `foundry`, `hud`, `helios`.
 
 ## Repository Map
 
@@ -36,6 +37,7 @@ This file defines repo-specific instructions for coding agents working in Basalt
 - If link/reference behavior changes, keep `resolve_references` in Rust and hydration logic in `src/main.ts` consistent.
 - Do not introduce extra frontend frameworks; keep using vanilla TypeScript + DOM APIs.
 - Keep styling token-driven (`:root` variables and theme variants) rather than one-off hard-coded colors.
+- Keep theme IDs in `src/main.ts` and `:root[data-theme="..."]` blocks in `src/styles.css` synchronized.
 
 ## Commit and Docs Hygiene
 
