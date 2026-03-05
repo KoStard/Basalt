@@ -39,6 +39,7 @@ struct AppState {
     documents: Mutex<HashMap<String, PathBuf>>,
     recents: Mutex<Vec<PathBuf>>,
     next_window: AtomicU64,
+    pending_open: Mutex<Vec<PathBuf>>,
 }
 
 #[derive(Serialize)]
@@ -648,8 +649,8 @@ fn ensure_main_window(app: &AppHandle) -> Result<(), String> {
 
     let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
         .title("Basalt")
-        .inner_size(1200.0, 820.0)
-        .min_inner_size(520.0, 420.0)
+        .inner_size(320.0, 720.0)
+        .min_inner_size(320.0, 240.0)
         .build()
         .map_err(|error| format!("Failed to create main window: {error}"))?;
 
@@ -658,16 +659,35 @@ fn ensure_main_window(app: &AppHandle) -> Result<(), String> {
 }
 
 fn spawn_document_window(app: &AppHandle, state: &AppState, target: PathBuf) -> Result<(), String> {
+    let normalized = fs::canonicalize(&target).unwrap_or(target.clone());
+
+    // If this file is already open, focus that window instead of spawning a new one.
+    {
+        let documents = state
+            .documents
+            .lock()
+            .map_err(|_| "App state is unavailable right now.".to_string())?;
+        for (label, path) in documents.iter() {
+            if *path == normalized {
+                if let Some(window) = app.get_webview_window(label) {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                    return Ok(());
+                }
+            }
+        }
+    }
+
     let label = format!("doc-{}", state.next_window.fetch_add(1, Ordering::Relaxed));
     let window = WebviewWindowBuilder::new(app, &label, WebviewUrl::App("index.html".into()))
-        .title(&title_for_document(&target))
-        .inner_size(1200.0, 820.0)
-        .min_inner_size(520.0, 420.0)
+        .title(&title_for_document(&normalized))
+        .inner_size(320.0, 720.0)
+        .min_inner_size(320.0, 240.0)
         .build()
         .map_err(|error| format!("Failed to create document window: {error}"))?;
 
     register_window_cleanup(&window, app.clone());
-    assign_document_to_window(app, state, &label, target)
+    assign_document_to_window(app, state, &label, normalized)
 }
 
 fn assign_document_to_window(
@@ -1602,9 +1622,15 @@ pub fn run() {
                 return;
             }
 
-            let state = app.state::<AppState>();
-            if let Err(error) = open_targets(app, state.inner(), targets, false) {
-                eprintln!("Failed to open requested files: {error}");
+            // Window creation must happen on the main thread.
+            let app = app.clone();
+            if let Err(error) = app.clone().run_on_main_thread(move || {
+                let state = app.state::<AppState>();
+                if let Err(error) = open_targets(&app, state.inner(), targets, false) {
+                    eprintln!("Failed to open requested files: {error}");
+                }
+            }) {
+                eprintln!("Failed to dispatch open to main thread: {error}");
             }
         }))
         .manage(AppState::default())
@@ -1630,13 +1656,17 @@ pub fn run() {
 
             register_window_cleanup(&main_window, app.handle().clone());
 
-            if startup_targets.is_empty() {
+            // Merge CLI targets with any paths received via macOS Open With (RunEvent::Opened)
+            let mut all_targets = startup_targets.clone();
+            if let Ok(mut pending) = state.pending_open.lock() {
+                all_targets.extend(pending.drain(..));
+            }
+
+            if all_targets.is_empty() {
                 return Ok(());
             }
 
-            if let Err(error) =
-                open_targets(app.handle(), state.inner(), startup_targets.clone(), true)
-            {
+            if let Err(error) = open_targets(app.handle(), state.inner(), all_targets, true) {
                 eprintln!("Failed to open startup files: {error}");
             }
             Ok(())
@@ -1650,6 +1680,28 @@ pub fn run() {
             open_reference,
             open_in_vscode
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running Basalt application");
+        .build(tauri::generate_context!())
+        .expect("error while building Basalt application")
+        .run(|app, event| {
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Opened { urls } = event {
+                let paths: Vec<PathBuf> = urls
+                    .iter()
+                    .filter_map(|url| url.to_file_path().ok())
+                    .collect();
+                if paths.is_empty() {
+                    return;
+                }
+                let state = app.state::<AppState>();
+                // If setup has already run, open immediately; otherwise stash for setup to pick up
+                let already_open = app.get_webview_window("main").is_some();
+                if already_open {
+                    if let Err(error) = open_targets(app, state.inner(), paths, false) {
+                        eprintln!("Failed to open files from Open With: {error}");
+                    }
+                } else if let Ok(mut pending) = state.pending_open.lock() {
+                    pending.extend(paths);
+                }
+            }
+        });
 }

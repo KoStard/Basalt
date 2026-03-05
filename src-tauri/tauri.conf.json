@@ -11,15 +11,7 @@
   },
   "app": {
     "withGlobalTauri": true,
-    "windows": [
-      {
-        "title": "Basalt",
-        "width": 320,
-        "height": 720,
-        "minWidth": 320,
-        "minHeight": 240
-      }
-    ],
+    "windows": [],
     "security": {
       "csp": null
     }
