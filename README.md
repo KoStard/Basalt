@@ -26,6 +26,15 @@ Watch a directory and open every new Markdown file:
 basalt watch path/to/directory
 ```
 
+This repo also includes local launchers:
+
+```bash
+./bin/basalt path/to/file.md
+./bin/watch path/to/directory
+```
+
+If you want `basalt` and `watch` globally, symlink those scripts into a directory on your `PATH`.
+
 ## Development
 
 ```bash

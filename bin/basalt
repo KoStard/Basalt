@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+RELEASE_BIN="${ROOT_DIR}/src-tauri/target/release/basalt"
+DEBUG_BIN="${ROOT_DIR}/src-tauri/target/debug/basalt"
+
+if [[ -x "${RELEASE_BIN}" ]]; then
+  exec "${RELEASE_BIN}" "$@"
+fi
+
+if [[ -x "${DEBUG_BIN}" ]]; then
+  exec "${DEBUG_BIN}" "$@"
+fi
+
+echo "Basalt binary not found." >&2
+echo "Build it first with one of:" >&2
+echo "  cargo build --manifest-path ${ROOT_DIR}/src-tauri/Cargo.toml" >&2
+echo "  npm run tauri build" >&2
+exit 1
