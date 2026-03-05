@@ -11,14 +11,25 @@ use std::{
         Mutex,
     },
 };
-use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use tauri::{
+    menu::{MenuBuilder, MenuEvent, MenuItem, PredefinedMenuItem, Submenu, SubmenuBuilder},
+    AppHandle, Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
+};
 use walkdir::WalkDir;
 
 const MARKDOWN_EXTENSIONS: [&str; 5] = ["md", "markdown", "mdown", "mkd", "mdx"];
+const MAX_RECENT_FILES: usize = 15;
+const RECENTS_STORAGE_FILE: &str = "recent-files.json";
+
+const MENU_ID_FILE_OPEN: &str = "file.open";
+const MENU_ID_FILE_OPEN_RECENT_PREFIX: &str = "file.open_recent.";
+const MENU_ID_FILE_NO_RECENTS: &str = "file.open_recent.none";
+const MENU_ID_EDIT_FIND: &str = "edit.find";
 
 #[derive(Default)]
 struct AppState {
     documents: Mutex<HashMap<String, PathBuf>>,
+    recents: Mutex<Vec<PathBuf>>,
     next_window: AtomicU64,
 }
 
@@ -36,12 +47,20 @@ struct FileChangedEvent {
     path: String,
 }
 
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RecentFileEntry {
+    path: String,
+    file_name: String,
+    available: bool,
+}
+
 #[tauri::command]
 fn load_document(
     window: WebviewWindow,
     state: tauri::State<AppState>,
 ) -> Result<LoadedDocument, String> {
-    let path = active_document_for_window(&window, &state)?;
+    let path = active_document_for_window(&window, state.inner())?;
     let markdown = fs::read_to_string(&path)
         .map_err(|error| format!("Failed to read '{}': {error}", path_display(&path)))?;
     let file_name = path
@@ -58,12 +77,37 @@ fn load_document(
 }
 
 #[tauri::command]
+fn list_recent_files(state: tauri::State<AppState>) -> Result<Vec<RecentFileEntry>, String> {
+    recent_entries(state.inner())
+}
+
+#[tauri::command]
+fn open_document_dialog(
+    window: WebviewWindow,
+    app: AppHandle,
+    state: tauri::State<AppState>,
+) -> Result<Option<String>, String> {
+    open_document_dialog_for_window(&window, &app, state.inner())
+}
+
+#[tauri::command]
+fn open_document_path(
+    window: WebviewWindow,
+    path: String,
+    app: AppHandle,
+    state: tauri::State<AppState>,
+) -> Result<(), String> {
+    let target = normalize_document_path(PathBuf::from(path))?;
+    assign_document_to_window(&app, state.inner(), window.label(), target)
+}
+
+#[tauri::command]
 fn resolve_references(
     window: WebviewWindow,
     references: Vec<String>,
     state: tauri::State<AppState>,
 ) -> Result<HashMap<String, Option<String>>, String> {
-    let document = active_document_for_window(&window, &state)?;
+    let document = active_document_for_window(&window, state.inner())?;
     let mut resolved = HashMap::with_capacity(references.len());
 
     for reference in references {
@@ -82,7 +126,7 @@ fn open_reference(
     app: AppHandle,
     state: tauri::State<AppState>,
 ) -> Result<(), String> {
-    let document = active_document_for_window(&window, &state)?;
+    let document = active_document_for_window(&window, state.inner())?;
     let Some(target) = resolve_reference_from_document(&document, &reference) else {
         return Ok(());
     };
@@ -102,7 +146,7 @@ fn open_reference(
 
 #[tauri::command]
 fn open_in_vscode(window: WebviewWindow, state: tauri::State<AppState>) -> Result<(), String> {
-    let path = active_document_for_window(&window, &state)?;
+    let path = active_document_for_window(&window, state.inner())?;
     Command::new("code")
         .arg(&path)
         .stdin(Stdio::null())
@@ -119,10 +163,7 @@ fn open_in_vscode(window: WebviewWindow, state: tauri::State<AppState>) -> Resul
     Ok(())
 }
 
-fn active_document_for_window(
-    window: &WebviewWindow,
-    state: &tauri::State<AppState>,
-) -> Result<PathBuf, String> {
+fn active_document_for_window(window: &WebviewWindow, state: &AppState) -> Result<PathBuf, String> {
     let guard = state
         .documents
         .lock()
@@ -132,6 +173,393 @@ fn active_document_for_window(
         .get(window.label())
         .cloned()
         .ok_or_else(|| "This window is not bound to a document yet.".to_string())
+}
+
+fn open_document_dialog_for_window(
+    window: &WebviewWindow,
+    app: &AppHandle,
+    state: &AppState,
+) -> Result<Option<String>, String> {
+    let current_document = active_document_for_window(window, state).ok();
+
+    let mut dialog = rfd::FileDialog::new().add_filter("Markdown", &MARKDOWN_EXTENSIONS);
+
+    if let Some(path) = current_document {
+        if let Some(parent) = path.parent() {
+            dialog = dialog.set_directory(parent);
+        }
+
+        if let Some(file_name) = path.file_name().and_then(|value| value.to_str()) {
+            dialog = dialog.set_file_name(file_name);
+        }
+    }
+
+    let Some(chosen) = dialog.pick_file() else {
+        return Ok(None);
+    };
+
+    let normalized = normalize_document_path(chosen)?;
+    assign_document_to_window(app, state, window.label(), normalized.clone())?;
+
+    Ok(Some(path_display(&normalized)))
+}
+
+fn open_recent_file_for_window(
+    app: &AppHandle,
+    state: &AppState,
+    window: &WebviewWindow,
+    recent_index: usize,
+) -> Result<(), String> {
+    let candidate = {
+        let recents = state
+            .recents
+            .lock()
+            .map_err(|_| "App state is unavailable right now.".to_string())?;
+        recents.get(recent_index).cloned()
+    }
+    .ok_or_else(|| "That recent file entry is no longer available.".to_string())?;
+
+    match normalize_document_path(candidate.clone()) {
+        Ok(normalized) => assign_document_to_window(app, state, window.label(), normalized),
+        Err(error) => {
+            remove_recent_file_by_path(state, &candidate)?;
+            save_recent_files_to_disk(app, state)?;
+            refresh_app_menu(app, state)?;
+            Err(error)
+        }
+    }
+}
+
+fn normalize_document_path(path: PathBuf) -> Result<PathBuf, String> {
+    if !path.exists() {
+        return Err(format!("File does not exist: {}", path_display(&path)));
+    }
+
+    if !path.is_file() {
+        return Err(format!("Path is not a file: {}", path_display(&path)));
+    }
+
+    Ok(fs::canonicalize(&path).unwrap_or(path))
+}
+
+fn remember_recent_file(state: &AppState, path: &Path) -> Result<(), String> {
+    let mut recents = state
+        .recents
+        .lock()
+        .map_err(|_| "App state is unavailable right now.".to_string())?;
+
+    let normalized = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let normalized_key = path_key(&normalized);
+
+    recents.retain(|entry| path_key(entry) != normalized_key);
+    recents.insert(0, normalized);
+    recents.truncate(MAX_RECENT_FILES);
+
+    Ok(())
+}
+
+fn remove_recent_file_by_path(state: &AppState, path: &Path) -> Result<(), String> {
+    let mut recents = state
+        .recents
+        .lock()
+        .map_err(|_| "App state is unavailable right now.".to_string())?;
+
+    let key = path_key(path);
+    recents.retain(|entry| path_key(entry) != key);
+    Ok(())
+}
+
+fn recent_paths_snapshot(state: &AppState) -> Result<Vec<PathBuf>, String> {
+    let recents = state
+        .recents
+        .lock()
+        .map_err(|_| "App state is unavailable right now.".to_string())?;
+    Ok(recents.clone())
+}
+
+fn recent_entries(state: &AppState) -> Result<Vec<RecentFileEntry>, String> {
+    let recents = recent_paths_snapshot(state)?;
+
+    Ok(recents
+        .into_iter()
+        .map(|path| {
+            let file_name = path
+                .file_name()
+                .and_then(|value| value.to_str())
+                .map(ToOwned::to_owned)
+                .unwrap_or_else(|| "Untitled.md".to_string());
+
+            RecentFileEntry {
+                path: path_display(&path),
+                file_name,
+                available: path.exists() && path.is_file(),
+            }
+        })
+        .collect())
+}
+
+fn recents_storage_path(app: &AppHandle) -> Option<PathBuf> {
+    app.path()
+        .app_config_dir()
+        .ok()
+        .map(|directory| directory.join(RECENTS_STORAGE_FILE))
+}
+
+fn load_recent_files_from_disk(app: &AppHandle) -> Vec<PathBuf> {
+    let Some(path) = recents_storage_path(app) else {
+        return Vec::new();
+    };
+
+    let Ok(content) = fs::read_to_string(path) else {
+        return Vec::new();
+    };
+
+    let parsed: Vec<String> = serde_json::from_str(&content).unwrap_or_default();
+    let mut seen = HashSet::new();
+    let mut recents = Vec::new();
+
+    for entry in parsed {
+        if entry.trim().is_empty() {
+            continue;
+        }
+
+        let candidate = PathBuf::from(entry);
+        let normalized = fs::canonicalize(&candidate).unwrap_or(candidate);
+        let key = path_key(&normalized);
+
+        if seen.insert(key) {
+            recents.push(normalized);
+        }
+
+        if recents.len() >= MAX_RECENT_FILES {
+            break;
+        }
+    }
+
+    recents
+}
+
+fn save_recent_files_to_disk(app: &AppHandle, state: &AppState) -> Result<(), String> {
+    let Some(path) = recents_storage_path(app) else {
+        return Ok(());
+    };
+
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("Failed to create config directory: {error}"))?;
+    }
+
+    let payload = recent_paths_snapshot(state)?
+        .into_iter()
+        .map(|entry| path_display(&entry))
+        .collect::<Vec<_>>();
+
+    let serialized =
+        serde_json::to_string_pretty(&payload).map_err(|error| format!("Failed to encode recents: {error}"))?;
+
+    fs::write(path, serialized).map_err(|error| format!("Failed to save recent files: {error}"))
+}
+
+fn recent_menu_label(path: &Path) -> String {
+    let name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("Untitled.md");
+
+    let parent = path
+        .parent()
+        .map(path_display)
+        .unwrap_or_else(|| "/".to_string());
+
+    format!("{name} ({parent})")
+}
+
+fn build_open_recent_submenu(
+    app: &AppHandle,
+    recents: &[PathBuf],
+) -> Result<Submenu<tauri::Wry>, String> {
+    let mut builder = SubmenuBuilder::new(app, "Open Recent");
+
+    if recents.is_empty() {
+        let empty_item = MenuItem::with_id(
+            app,
+            MENU_ID_FILE_NO_RECENTS,
+            "No Recent Files",
+            false,
+            None::<&str>,
+        )
+        .map_err(|error| format!("Failed to build recent menu item: {error}"))?;
+        builder = builder.item(&empty_item);
+    } else {
+        for (index, path) in recents.iter().enumerate() {
+            builder = builder.text(
+                format!("{MENU_ID_FILE_OPEN_RECENT_PREFIX}{index}"),
+                recent_menu_label(path),
+            );
+        }
+    }
+
+    builder
+        .build()
+        .map_err(|error| format!("Failed to build Open Recent submenu: {error}"))
+}
+
+fn build_file_submenu(app: &AppHandle, recents: &[PathBuf]) -> Result<Submenu<tauri::Wry>, String> {
+    let open_item = MenuItem::with_id(app, MENU_ID_FILE_OPEN, "Open...", true, Some("CmdOrCtrl+O"))
+        .map_err(|error| format!("Failed to build Open menu item: {error}"))?;
+    let open_recent_submenu = build_open_recent_submenu(app, recents)?;
+    let close_window_item = PredefinedMenuItem::close_window(app, None)
+        .map_err(|error| format!("Failed to build Close Window menu item: {error}"))?;
+
+    let base_builder = SubmenuBuilder::new(app, "File")
+        .item(&open_item)
+        .item(&open_recent_submenu)
+        .separator()
+        .item(&close_window_item);
+
+    #[cfg(not(target_os = "macos"))]
+    let builder = {
+        let quit_item = PredefinedMenuItem::quit(app, None)
+            .map_err(|error| format!("Failed to build Quit menu item: {error}"))?;
+        base_builder.separator().item(&quit_item)
+    };
+
+    #[cfg(target_os = "macos")]
+    let builder = base_builder;
+
+    builder
+        .build()
+        .map_err(|error| format!("Failed to build File submenu: {error}"))
+}
+
+fn build_edit_submenu(app: &AppHandle) -> Result<Submenu<tauri::Wry>, String> {
+    let find_item = MenuItem::with_id(app, MENU_ID_EDIT_FIND, "Find...", true, Some("CmdOrCtrl+F"))
+        .map_err(|error| format!("Failed to build Find menu item: {error}"))?;
+
+    SubmenuBuilder::new(app, "Edit")
+        .item(&find_item)
+        .separator()
+        .cut()
+        .copy()
+        .paste()
+        .select_all()
+        .build()
+        .map_err(|error| format!("Failed to build Edit submenu: {error}"))
+}
+
+#[cfg(target_os = "macos")]
+fn build_macos_app_submenu(app: &AppHandle) -> Result<Submenu<tauri::Wry>, String> {
+    let package_name = app.package_info().name.clone();
+
+    let about_item = PredefinedMenuItem::about(app, None, None)
+        .map_err(|error| format!("Failed to build About menu item: {error}"))?;
+    let services_item = PredefinedMenuItem::services(app, None)
+        .map_err(|error| format!("Failed to build Services menu item: {error}"))?;
+    let hide_item = PredefinedMenuItem::hide(app, None)
+        .map_err(|error| format!("Failed to build Hide menu item: {error}"))?;
+    let hide_others_item = PredefinedMenuItem::hide_others(app, None)
+        .map_err(|error| format!("Failed to build Hide Others menu item: {error}"))?;
+    let quit_item = PredefinedMenuItem::quit(app, None)
+        .map_err(|error| format!("Failed to build Quit menu item: {error}"))?;
+
+    SubmenuBuilder::new(app, package_name)
+        .item(&about_item)
+        .separator()
+        .item(&services_item)
+        .separator()
+        .item(&hide_item)
+        .item(&hide_others_item)
+        .separator()
+        .item(&quit_item)
+        .build()
+        .map_err(|error| format!("Failed to build app submenu: {error}"))
+}
+
+fn build_app_menu(app: &AppHandle, state: &AppState) -> Result<tauri::menu::Menu<tauri::Wry>, String> {
+    let recents = recent_paths_snapshot(state)?;
+    let file_submenu = build_file_submenu(app, &recents)?;
+    let edit_submenu = build_edit_submenu(app)?;
+
+    let mut builder = MenuBuilder::new(app);
+
+    #[cfg(target_os = "macos")]
+    {
+        let app_submenu = build_macos_app_submenu(app)?;
+        let window_submenu = SubmenuBuilder::with_id(app, tauri::menu::WINDOW_SUBMENU_ID, "Window")
+            .minimize()
+            .maximize()
+            .separator()
+            .close_window()
+            .build()
+            .map_err(|error| format!("Failed to build Window submenu: {error}"))?;
+
+        builder = builder
+            .item(&app_submenu)
+            .item(&file_submenu)
+            .item(&edit_submenu)
+            .item(&window_submenu);
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        builder = builder.item(&file_submenu).item(&edit_submenu);
+    }
+
+    builder
+        .build()
+        .map_err(|error| format!("Failed to build application menu: {error}"))
+}
+
+fn refresh_app_menu(app: &AppHandle, state: &AppState) -> Result<(), String> {
+    let menu = build_app_menu(app, state)?;
+    app.set_menu(menu)
+        .map_err(|error| format!("Failed to apply menu: {error}"))?;
+    Ok(())
+}
+
+fn window_for_menu_action(app: &AppHandle) -> Option<WebviewWindow> {
+    let windows = app.webview_windows();
+
+    if let Some(window) = windows
+        .values()
+        .find(|window| window.is_focused().ok().is_some_and(|focused| focused))
+    {
+        return Some(window.clone());
+    }
+
+    app.get_webview_window("main")
+        .or_else(|| windows.into_values().next())
+}
+
+fn handle_menu_event(app: &AppHandle, event: MenuEvent) {
+    let menu_id = event.id().as_ref();
+    let Some(window) = window_for_menu_action(app) else {
+        return;
+    };
+
+    let state = app.state::<AppState>();
+
+    if menu_id == MENU_ID_FILE_OPEN {
+        if let Err(error) = open_document_dialog_for_window(&window, app, state.inner()) {
+            eprintln!("Failed to open document from menu: {error}");
+        }
+        return;
+    }
+
+    if menu_id == MENU_ID_EDIT_FIND {
+        if let Err(error) = window.emit("basalt://focus-search", ()) {
+            eprintln!("Failed to dispatch Find action to frontend: {error}");
+        }
+        return;
+    }
+
+    if let Some(raw_index) = menu_id.strip_prefix(MENU_ID_FILE_OPEN_RECENT_PREFIX) {
+        if let Ok(index) = raw_index.parse::<usize>() {
+            if let Err(error) = open_recent_file_for_window(app, state.inner(), &window, index) {
+                eprintln!("Failed to open recent file: {error}");
+            }
+        }
+    }
 }
 
 fn open_targets(
@@ -196,12 +624,22 @@ fn assign_document_to_window(
     label: &str,
     target: PathBuf,
 ) -> Result<(), String> {
+    let normalized = fs::canonicalize(&target).unwrap_or(target);
+
     {
         let mut documents = state
             .documents
             .lock()
             .map_err(|_| "App state is unavailable right now.".to_string())?;
-        documents.insert(label.to_string(), target.clone());
+        documents.insert(label.to_string(), normalized.clone());
+    }
+
+    remember_recent_file(state, &normalized)?;
+    if let Err(error) = save_recent_files_to_disk(app, state) {
+        eprintln!("Failed to persist recent files: {error}");
+    }
+    if let Err(error) = refresh_app_menu(app, state) {
+        eprintln!("Failed to refresh app menu: {error}");
     }
 
     let Some(window) = app.get_webview_window(label) else {
@@ -209,13 +647,13 @@ fn assign_document_to_window(
     };
 
     window
-        .set_title(&title_for_document(&target))
+        .set_title(&title_for_document(&normalized))
         .map_err(|error| format!("Failed to set window title: {error}"))?;
     window
         .emit(
             "basalt://file-changed",
             FileChangedEvent {
-                path: path_display(&target),
+                path: path_display(&normalized),
             },
         )
         .map_err(|error| format!("Failed to update window content: {error}"))?;
@@ -530,7 +968,18 @@ pub fn run() {
             }
         }))
         .manage(AppState::default())
+        .on_menu_event(handle_menu_event)
         .setup(move |app| {
+            let state = app.state::<AppState>();
+
+            if let Ok(mut recents) = state.recents.lock() {
+                *recents = load_recent_files_from_disk(app.handle());
+            }
+
+            if let Err(error) = refresh_app_menu(app.handle(), state.inner()) {
+                eprintln!("Failed to initialize app menu: {error}");
+            }
+
             let Some(main_window) = app.get_webview_window("main") else {
                 return Ok(());
             };
@@ -541,7 +990,6 @@ pub fn run() {
                 return Ok(());
             }
 
-            let state = app.state::<AppState>();
             if let Err(error) =
                 open_targets(app.handle(), state.inner(), startup_targets.clone(), true)
             {
@@ -551,6 +999,9 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             load_document,
+            list_recent_files,
+            open_document_dialog,
+            open_document_path,
             resolve_references,
             open_reference,
             open_in_vscode
