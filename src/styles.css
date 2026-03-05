@@ -6,6 +6,12 @@
   --font-ui: "IBM Plex Sans", "Avenir Next", "Segoe UI", sans-serif;
   --font-mono: "JetBrains Mono", "SFMono-Regular", Menlo, Consolas, monospace;
   --reader-font-size: 1.03rem;
+  --reader-h1-scale: 2;
+  --reader-h2-scale: 1.45;
+  --reader-h3-scale: 1.17;
+  --reader-h4-scale: 1;
+  --reader-h5-scale: 0.83;
+  --reader-h6-scale: 0.67;
 
   --surface: #111821;
   --surface-alt: #182330;
@@ -215,7 +221,7 @@ button:focus-visible,
   box-shadow: none;
   padding: 12px 14px 20px;
   line-height: 1.6;
-  font-size: 1rem;
+  font-size: var(--reader-font-size);
 }
 
 .viewer h1,
@@ -231,15 +237,31 @@ button:focus-visible,
 
 .viewer h1 {
   margin-top: 0;
-  font-size: 2rem;
+  font-size: calc(var(--reader-font-size) * var(--reader-h1-scale));
   border-bottom: 1px solid var(--line);
   padding-bottom: 0.35em;
 }
 
 .viewer h2 {
-  font-size: 1.45rem;
+  font-size: calc(var(--reader-font-size) * var(--reader-h2-scale));
   border-bottom: 1px solid color-mix(in oklab, var(--line) 80%, transparent);
   padding-bottom: 0.25em;
+}
+
+.viewer h3 {
+  font-size: calc(var(--reader-font-size) * var(--reader-h3-scale));
+}
+
+.viewer h4 {
+  font-size: calc(var(--reader-font-size) * var(--reader-h4-scale));
+}
+
+.viewer h5 {
+  font-size: calc(var(--reader-font-size) * var(--reader-h5-scale));
+}
+
+.viewer h6 {
+  font-size: calc(var(--reader-font-size) * var(--reader-h6-scale));
 }
 
 .viewer p,
@@ -533,25 +555,6 @@ button:focus-visible,
 .command-item:hover,
 .command-item.is-selected {
   background: color-mix(in oklab, var(--accent) 22%, transparent);
-}
-
-@media (min-width: 1040px) {
-  body {
-    background:
-      radial-gradient(circle at 10% 10%, color-mix(in oklab, var(--accent) 20%, transparent), transparent 42%),
-      radial-gradient(circle at 90% 0%, color-mix(in oklab, var(--accent-strong) 20%, transparent), transparent 36%),
-      linear-gradient(180deg, var(--surface-alt), var(--surface));
-  }
-
-  .viewer-wrap {
-    padding: 12px clamp(10px, 2.5vw, 28px) 22px;
-  }
-
-  .corner-actions {
-    max-width: 980px;
-    margin: 0 auto 8px;
-    padding: 0;
-  }
 }
 
 .find-panel {

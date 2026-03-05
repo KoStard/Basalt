@@ -23,6 +23,7 @@ type PaletteCommand = {
   id: string;
   label: string;
   keywords: string;
+  previewTheme?: ThemeId;
   run: () => Promise<void> | void;
 };
 
@@ -66,6 +67,8 @@ let commandList: PaletteCommand[] = [];
 let filteredCommands: PaletteCommand[] = [];
 let selectedCommandIndex = 0;
 let isPaletteOpen = false;
+let activeTheme: ThemeId = "obsidian";
+let previewedTheme: ThemeId | null = null;
 
 let isFindOpen = false;
 let searchMatches: HTMLElement[] = [];
@@ -85,9 +88,36 @@ function currentThemeLabel(theme: ThemeId): string {
   return THEMES.find((entry) => entry.id === theme)?.label ?? theme;
 }
 
+function asThemeId(value: string | undefined): ThemeId | null {
+  if (!value || !THEME_IDS.has(value as ThemeId)) {
+    return null;
+  }
+  return value as ThemeId;
+}
+
 function applyTheme(theme: ThemeId): void {
+  activeTheme = theme;
+  previewedTheme = null;
   document.documentElement.dataset.theme = theme;
   localStorage.setItem(THEME_STORAGE_KEY, theme);
+}
+
+function previewPaletteTheme(theme: ThemeId | null): void {
+  if (theme === null) {
+    if (previewedTheme === null) {
+      return;
+    }
+    previewedTheme = null;
+    document.documentElement.dataset.theme = activeTheme;
+    return;
+  }
+
+  if (previewedTheme === theme) {
+    return;
+  }
+
+  previewedTheme = theme;
+  document.documentElement.dataset.theme = theme;
 }
 
 function restoreTheme(): void {
@@ -656,6 +686,29 @@ function matchingCommands(query: string): PaletteCommand[] {
   return scored.map((entry) => entry.command);
 }
 
+function updateCommandSelection(scrollIntoView = false): void {
+  if (!commandResultsEl || filteredCommands.length === 0) {
+    return;
+  }
+
+  const buttons = commandResultsEl.querySelectorAll<HTMLButtonElement>("button.command-item");
+  buttons.forEach((button, index) => {
+    button.classList.toggle("is-selected", index === selectedCommandIndex);
+  });
+
+  if (!scrollIntoView) {
+    return;
+  }
+
+  const active = buttons[selectedCommandIndex];
+  active?.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" });
+}
+
+function previewSelectedCommandTheme(): void {
+  const selected = filteredCommands[selectedCommandIndex];
+  previewPaletteTheme(selected?.previewTheme ?? null);
+}
+
 function renderCommandResults(): void {
   if (!commandResultsEl || !commandInputEl) {
     return;
@@ -687,15 +740,9 @@ function renderCommandResults(): void {
 
     button.textContent = command.label;
     button.dataset.index = String(index);
-
-    button.addEventListener("mouseenter", () => {
-      selectedCommandIndex = index;
-      renderCommandResults();
-    });
-
-    button.addEventListener("click", () => {
-      void runCommandByIndex(index);
-    });
+    if (command.previewTheme) {
+      button.dataset.previewTheme = command.previewTheme;
+    }
 
     item.appendChild(button);
     commandResultsEl.appendChild(item);
@@ -707,6 +754,7 @@ function openCommandPalette(): void {
     return;
   }
 
+  previewPaletteTheme(null);
   commandPaletteEl.hidden = false;
   commandPaletteEl.setAttribute("aria-hidden", "false");
   isPaletteOpen = true;
@@ -726,6 +774,7 @@ function closeCommandPalette(): void {
     return;
   }
 
+  previewPaletteTheme(null);
   commandPaletteEl.hidden = true;
   commandPaletteEl.setAttribute("aria-hidden", "true");
   isPaletteOpen = false;
@@ -778,6 +827,7 @@ function bindEvents(): void {
   });
 
   commandInputEl?.addEventListener("input", () => {
+    previewPaletteTheme(null);
     selectedCommandIndex = 0;
     renderCommandResults();
   });
@@ -789,7 +839,8 @@ function bindEvents(): void {
         return;
       }
       selectedCommandIndex = (selectedCommandIndex + 1) % filteredCommands.length;
-      renderCommandResults();
+      updateCommandSelection(true);
+      previewSelectedCommandTheme();
       return;
     }
 
@@ -800,7 +851,8 @@ function bindEvents(): void {
       }
       selectedCommandIndex =
         selectedCommandIndex === 0 ? filteredCommands.length - 1 : selectedCommandIndex - 1;
-      renderCommandResults();
+      updateCommandSelection(true);
+      previewSelectedCommandTheme();
       return;
     }
 
@@ -816,6 +868,48 @@ function bindEvents(): void {
     }
   });
 
+  commandResultsEl?.addEventListener("mousemove", (event) => {
+    if (filteredCommands.length === 0) {
+      previewPaletteTheme(null);
+      return;
+    }
+
+    const target = event.target as HTMLElement;
+    const commandButton = target.closest<HTMLButtonElement>("button.command-item");
+    if (!commandButton || !commandResultsEl?.contains(commandButton)) {
+      previewPaletteTheme(null);
+      return;
+    }
+
+    const index = Number.parseInt(commandButton.dataset.index ?? "", 10);
+    if (!Number.isNaN(index) && index !== selectedCommandIndex) {
+      selectedCommandIndex = index;
+      updateCommandSelection();
+    }
+
+    previewPaletteTheme(asThemeId(commandButton.dataset.previewTheme));
+  });
+
+  commandResultsEl?.addEventListener("mouseleave", () => {
+    previewPaletteTheme(null);
+  });
+
+  commandResultsEl?.addEventListener("click", (event) => {
+    const target = event.target as HTMLElement;
+    const commandButton = target.closest<HTMLButtonElement>("button.command-item");
+    if (!commandButton || !commandResultsEl?.contains(commandButton)) {
+      return;
+    }
+
+    const index = Number.parseInt(commandButton.dataset.index ?? "", 10);
+    if (Number.isNaN(index)) {
+      return;
+    }
+
+    event.preventDefault();
+    void runCommandByIndex(index);
+  });
+
   commandPaletteEl?.addEventListener("click", (event) => {
     const target = event.target as HTMLElement;
     if (target.closest("[data-close-palette]")) {
@@ -826,8 +920,9 @@ function bindEvents(): void {
   window.addEventListener("keydown", (event) => {
     const key = event.key.toLowerCase();
     const hasCommandModifier = event.metaKey || event.ctrlKey;
-    const plusPressed = key === "+" || key === "=" || event.code === "NumpadAdd";
-    const minusPressed = key === "-" || key === "_" || event.code === "NumpadSubtract";
+    const plusPressed = key === "+" || key === "=" || event.code === "Equal" || event.code === "NumpadAdd";
+    const minusPressed =
+      key === "-" || key === "_" || event.code === "Minus" || event.code === "NumpadSubtract";
 
     if (hasCommandModifier && !event.altKey && plusPressed) {
       event.preventDefault();
@@ -915,6 +1010,7 @@ function buildThemeCommands(): PaletteCommand[] {
     id: `theme-${theme.id}`,
     label: `Theme: ${theme.label}`,
     keywords: `theme ${theme.keywords}`,
+    previewTheme: theme.id,
     run: () => {
       applyTheme(theme.id);
       setStatus(`Theme switched to ${currentThemeLabel(theme.id)}.`);
