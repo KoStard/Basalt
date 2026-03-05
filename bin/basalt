@@ -14,13 +14,17 @@ resolve_script_path() {
 
 SCRIPT_PATH="$(resolve_script_path)"
 ROOT_DIR="$(cd "$(dirname "${SCRIPT_PATH}")/.." && pwd)"
-BUNDLE_BIN="${ROOT_DIR}/src-tauri/target/release/bundle/macos/Basalt.app/Contents/MacOS/Basalt"
+BUNDLE_DIR="${ROOT_DIR}/src-tauri/target/release/bundle/macos/Basalt.app/Contents/MacOS"
+BUNDLE_BIN_LOWER="${BUNDLE_DIR}/basalt"
+BUNDLE_BIN_CAMEL="${BUNDLE_DIR}/Basalt"
 RELEASE_BIN="${ROOT_DIR}/src-tauri/target/release/basalt"
 DEBUG_BIN="${ROOT_DIR}/src-tauri/target/debug/basalt"
 
 TARGET_BIN=""
-if [[ -x "${BUNDLE_BIN}" ]]; then
-  TARGET_BIN="${BUNDLE_BIN}"
+if [[ -x "${BUNDLE_BIN_LOWER}" ]]; then
+  TARGET_BIN="${BUNDLE_BIN_LOWER}"
+elif [[ -x "${BUNDLE_BIN_CAMEL}" ]]; then
+  TARGET_BIN="${BUNDLE_BIN_CAMEL}"
 elif [[ -x "${RELEASE_BIN}" ]]; then
   TARGET_BIN="${RELEASE_BIN}"
 elif [[ -x "${DEBUG_BIN}" ]]; then

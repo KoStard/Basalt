@@ -5,7 +5,9 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 INSTALL_DIR="${1:-$HOME/.local/bin}"
 TARGET_BIN="${INSTALL_DIR}/basalt"
 LAUNCHER_BIN="${ROOT_DIR}/bin/basalt"
-BUNDLE_BIN="${ROOT_DIR}/src-tauri/target/release/bundle/macos/Basalt.app/Contents/MacOS/Basalt"
+BUNDLE_DIR="${ROOT_DIR}/src-tauri/target/release/bundle/macos/Basalt.app/Contents/MacOS"
+BUNDLE_BIN_LOWER="${BUNDLE_DIR}/basalt"
+BUNDLE_BIN_CAMEL="${BUNDLE_DIR}/Basalt"
 RELEASE_BIN="${ROOT_DIR}/src-tauri/target/release/basalt"
 
 mkdir -p "${INSTALL_DIR}"
@@ -16,7 +18,7 @@ echo "Building Tauri app bundle..."
   npm run tauri build
 )
 
-if [[ ! -x "${BUNDLE_BIN}" && ! -x "${RELEASE_BIN}" ]]; then
+if [[ ! -x "${BUNDLE_BIN_LOWER}" && ! -x "${BUNDLE_BIN_CAMEL}" && ! -x "${RELEASE_BIN}" ]]; then
   echo "No runnable Basalt executable found after build." >&2
   exit 1
 fi
