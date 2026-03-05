@@ -1,6 +1,7 @@
 :root {
   --font-ui: "IBM Plex Sans", "Avenir Next", "Segoe UI", sans-serif;
   --font-mono: "JetBrains Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  --reader-font-size: 1.03rem;
 
   --surface: #111821;
   --surface-alt: #182330;
@@ -359,6 +360,82 @@ button:focus-visible,
   color: var(--danger);
 }
 
+.empty-state kbd {
+  font-family: var(--font-mono);
+  font-size: 0.83em;
+  border: 1px solid var(--line);
+  border-bottom-width: 2px;
+  border-radius: 6px;
+  padding: 0.08em 0.4em;
+  background: color-mix(in oklab, var(--surface-alt) 78%, transparent);
+}
+
+.empty-open-btn {
+  margin: 0.35rem 0 1rem;
+  padding: 0.5rem 0.85rem;
+  font-size: 0.9rem;
+}
+
+.recent-state {
+  margin: 1rem 0 1.2rem;
+}
+
+.recent-state h2 {
+  margin: 0 0 0.55rem;
+  font-size: 1.05rem;
+  border: 0;
+  padding: 0;
+}
+
+.recent-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 8px;
+}
+
+.recent-btn {
+  width: 100%;
+  border-radius: 9px;
+  border: 1px solid var(--line);
+  padding: 0.55rem 0.7rem;
+  background: color-mix(in oklab, var(--surface-alt) 72%, transparent);
+  color: var(--text);
+  text-align: left;
+  display: grid;
+  gap: 3px;
+}
+
+.recent-btn span {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  overflow-x: auto;
+}
+
+.recent-btn em {
+  color: var(--danger);
+  font-style: normal;
+  font-size: 0.78rem;
+}
+
+.recent-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
+.viewer mark.search-hit {
+  background: color-mix(in oklab, var(--accent) 28%, transparent);
+  border-radius: 4px;
+  color: inherit;
+  padding: 0.02em 0.04em;
+}
+
+.viewer mark.search-hit.search-hit-active {
+  background: color-mix(in oklab, var(--accent-strong) 52%, white 14%);
+}
+
 .bottom-bar {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -471,21 +548,90 @@ button:focus-visible,
     margin: 0 auto 8px;
     padding: 0;
   }
+}
 
+.find-panel {
+  position: fixed;
+  z-index: 35;
+  top: 12px;
+  right: clamp(10px, 2.5vw, 28px);
+  width: min(560px, calc(100vw - 20px));
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto auto;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: color-mix(in oklab, var(--panel) 86%, black 14%);
+  backdrop-filter: blur(6px);
+  padding: 6px;
+  box-shadow: 0 12px 35px color-mix(in oklab, var(--surface) 62%, black);
+}
+
+.find-input {
+  width: 100%;
+  border: 1px solid color-mix(in oklab, var(--line) 88%, transparent);
+  border-radius: 8px;
+  background: color-mix(in oklab, var(--surface-alt) 64%, transparent);
+  color: var(--text);
+  font: inherit;
+  padding: 6px 9px;
+  min-width: 0;
+}
+
+.find-count {
+  color: var(--muted);
+  font-size: 0.8rem;
+  min-width: 64px;
+  text-align: right;
+}
+
+.find-btn {
+  padding: 4px 8px;
+  border-radius: 7px;
+  font-size: 0.78rem;
+}
+
+.find-close {
+  min-width: 58px;
+}
+
+@media (max-width: 920px) {
   .viewer {
-    max-width: 980px;
-    margin: 0 auto;
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: 16px;
-    box-shadow: 0 20px 55px color-mix(in oklab, var(--surface) 68%, black);
-    padding: clamp(18px, 3.5vw, 48px);
-    line-height: 1.72;
-    font-size: 1.03rem;
+    border-radius: 12px;
   }
 }
 
 @media (max-width: 640px) {
+  .find-panel {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    grid-template-areas:
+      "input input input"
+      "count prev next"
+      "close close close";
+  }
+
+  .find-input {
+    grid-area: input;
+  }
+
+  .find-count {
+    grid-area: count;
+    text-align: left;
+  }
+
+  #find-prev {
+    grid-area: prev;
+  }
+
+  #find-next {
+    grid-area: next;
+  }
+
+  #find-close {
+    grid-area: close;
+  }
+
   .bottom-bar {
     grid-template-columns: 1fr;
     gap: 4px;
