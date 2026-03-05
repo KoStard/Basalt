@@ -16,7 +16,7 @@
   --topbar-bg: color-mix(in oklab, var(--surface-alt) 90%, black 10%);
   --button-bg: #1a2a3b;
   --button-hover: #22364a;
-  --status-bg: #0e151f;
+  --status-bg: #0f1722;
   --danger: #ff8364;
 }
 
@@ -33,7 +33,7 @@
   --quote: #2a5f87;
   --button-bg: #1a2a3b;
   --button-hover: #22364a;
-  --status-bg: #0e151f;
+  --status-bg: #0f1722;
 }
 
 :root[data-theme="paper"] {
@@ -97,92 +97,93 @@ body {
 .topbar {
   position: sticky;
   top: 0;
-  z-index: 10;
-  display: grid;
-  grid-template-columns: 1.2fr 2fr auto;
-  gap: 16px;
+  z-index: 12;
+  display: flex;
   align-items: center;
-  padding: 14px 20px;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 44px;
+  padding: 8px 12px;
   background: var(--topbar-bg);
   backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--line);
 }
 
-.brand-block,
-.doc-block {
+.top-left {
   display: flex;
-  flex-direction: column;
+  align-items: baseline;
+  gap: 10px;
   min-width: 0;
 }
 
 .brand-title {
   font-weight: 700;
-  font-size: 1.05rem;
-  letter-spacing: 0.03em;
-}
-
-.brand-tag,
-.doc-path {
-  margin-top: 3px;
+  font-size: 0.78rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
   color: var(--muted);
-  font-size: 0.83rem;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  flex-shrink: 0;
 }
 
 .doc-name {
-  font-weight: 600;
-  font-size: 0.95rem;
+  font-weight: 650;
+  font-size: 0.9rem;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.actions {
+.top-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  flex-shrink: 0;
 }
 
-.theme-picker {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  font-size: 0.82rem;
-  color: var(--muted);
-}
-
-select,
 button {
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 8px;
   background: var(--button-bg);
   color: var(--text);
-  padding: 8px 12px;
   font: inherit;
-}
-
-button {
-  font-size: 0.85rem;
   cursor: pointer;
 }
 
-button:hover,
-select:hover {
+button:hover {
   background: var(--button-hover);
 }
 
-select:focus,
-button:focus-visible {
+button:focus-visible,
+.command-input:focus {
   outline: 2px solid color-mix(in oklab, var(--accent) 65%, transparent);
   outline-offset: 1px;
+}
+
+.palette-trigger {
+  padding: 5px 9px;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.icon-btn {
+  width: 30px;
+  height: 30px;
+  padding: 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.icon-btn svg {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
 }
 
 .viewer-wrap {
   width: 100%;
   overflow-y: auto;
-  padding: 24px clamp(12px, 3vw, 32px) 36px;
+  padding: 14px clamp(10px, 2.5vw, 28px) 22px;
 }
 
 .viewer {
@@ -192,7 +193,7 @@ button:focus-visible {
   border: 1px solid var(--line);
   border-radius: 16px;
   box-shadow: 0 20px 55px color-mix(in oklab, var(--surface) 68%, black);
-  padding: clamp(20px, 4vw, 52px);
+  padding: clamp(18px, 3.5vw, 48px);
   line-height: 1.72;
   font-size: 1.03rem;
 }
@@ -204,7 +205,7 @@ button:focus-visible {
 .viewer h5,
 .viewer h6 {
   line-height: 1.25;
-  margin: 1.4em 0 0.55em;
+  margin: 1.35em 0 0.55em;
   letter-spacing: 0.01em;
 }
 
@@ -343,27 +344,104 @@ button:focus-visible {
   color: var(--danger);
 }
 
-.status {
-  min-height: 30px;
+.bottom-bar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
   border-top: 1px solid var(--line);
-  padding: 6px 18px;
-  font-size: 0.82rem;
-  color: var(--muted);
+  padding: 6px 10px;
+  font-size: 0.78rem;
   background: var(--status-bg);
 }
 
-.status[data-tone="error"] {
+.doc-path {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+
+.status-text {
+  color: var(--muted);
+  white-space: nowrap;
+  padding-left: 8px;
+}
+
+.status-text[data-tone="error"] {
   color: var(--danger);
 }
 
-@media (max-width: 1080px) {
-  .topbar {
-    grid-template-columns: 1fr;
-    gap: 10px;
-  }
+.command-palette {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+}
 
-  .actions {
-    flex-wrap: wrap;
+.command-backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: color-mix(in oklab, var(--surface) 60%, black 40%);
+  opacity: 0.64;
+}
+
+.command-panel {
+  position: relative;
+  width: min(720px, calc(100vw - 26px));
+  margin: 70px auto 0;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 30px 70px color-mix(in oklab, var(--surface) 55%, black 45%);
+  overflow: hidden;
+}
+
+.command-input {
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.98rem;
+  padding: 12px 14px;
+}
+
+.command-results {
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  max-height: min(56vh, 420px);
+  overflow-y: auto;
+}
+
+.command-item,
+.command-empty {
+  width: 100%;
+  border-radius: 8px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  padding: 9px 10px;
+  font-size: 0.9rem;
+}
+
+.command-empty {
+  color: var(--muted);
+}
+
+.command-item:hover,
+.command-item.is-selected {
+  background: color-mix(in oklab, var(--accent) 22%, transparent);
+}
+
+@media (max-width: 920px) {
+  .palette-trigger {
+    font-size: 0.68rem;
   }
 
   .viewer {
@@ -372,19 +450,31 @@ button:focus-visible {
 }
 
 @media (max-width: 640px) {
+  .topbar {
+    min-height: 40px;
+    padding: 7px 8px;
+  }
+
+  .brand-title {
+    display: none;
+  }
+
+  .palette-trigger {
+    padding: 4px 7px;
+  }
+
+  .bottom-bar {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+
+  .status-text {
+    padding-left: 0;
+  }
+
   .viewer {
     font-size: 0.98rem;
     line-height: 1.64;
-    padding: 18px;
-  }
-
-  button,
-  select {
-    width: 100%;
-  }
-
-  .actions {
-    display: grid;
-    grid-template-columns: 1fr;
+    padding: 17px;
   }
 }

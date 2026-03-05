@@ -12,41 +12,61 @@ type LoadedDocument = {
 
 type ResolvedReferenceMap = Record<string, string | null>;
 
+type PaletteCommand = {
+  id: string;
+  label: string;
+  keywords: string;
+  run: () => Promise<void> | void;
+};
+
+const THEMES = [
+  { id: "obsidian", label: "Obsidian Night", keywords: "dark obsidian night" },
+  { id: "paper", label: "Graph Paper", keywords: "light paper graph" },
+  { id: "grove", label: "Moss Grove", keywords: "green grove moss" },
+] as const;
+
+type ThemeId = (typeof THEMES)[number]["id"];
+
 const THEME_STORAGE_KEY = "basalt.theme";
+const THEME_IDS = new Set<ThemeId>(THEMES.map((theme) => theme.id));
 
 const viewerEl = document.querySelector<HTMLElement>("#viewer");
-const statusEl = document.querySelector<HTMLElement>("#status");
+const statusTextEl = document.querySelector<HTMLElement>("#status-text");
 const nameEl = document.querySelector<HTMLElement>("#doc-name");
 const pathEl = document.querySelector<HTMLElement>("#doc-path");
-const themeSelectEl = document.querySelector<HTMLSelectElement>("#theme-select");
-const reloadBtn = document.querySelector<HTMLButtonElement>("#reload-btn");
 const vscodeBtn = document.querySelector<HTMLButtonElement>("#vscode-btn");
+const paletteBtn = document.querySelector<HTMLButtonElement>("#palette-btn");
+const commandPaletteEl = document.querySelector<HTMLElement>("#command-palette");
+const commandInputEl = document.querySelector<HTMLInputElement>("#command-input");
+const commandResultsEl = document.querySelector<HTMLUListElement>("#command-results");
+
+let commandList: PaletteCommand[] = [];
+let filteredCommands: PaletteCommand[] = [];
+let selectedCommandIndex = 0;
+let isPaletteOpen = false;
 
 marked.setOptions({ gfm: true, breaks: false });
 
 function setStatus(message: string, isError = false): void {
-  if (!statusEl) {
+  if (!statusTextEl) {
     return;
   }
-  statusEl.textContent = message;
-  statusEl.dataset.tone = isError ? "error" : "neutral";
+  statusTextEl.textContent = message;
+  statusTextEl.dataset.tone = isError ? "error" : "neutral";
 }
 
-function applyTheme(theme: string): void {
+function currentThemeLabel(theme: ThemeId): string {
+  return THEMES.find((entry) => entry.id === theme)?.label ?? theme;
+}
+
+function applyTheme(theme: ThemeId): void {
   document.documentElement.dataset.theme = theme;
   localStorage.setItem(THEME_STORAGE_KEY, theme);
 }
 
 function restoreTheme(): void {
-  if (!themeSelectEl) {
-    return;
-  }
-
-  const stored = localStorage.getItem(THEME_STORAGE_KEY) ?? "obsidian";
-  const available = new Set(Array.from(themeSelectEl.options).map((option) => option.value));
-  const nextTheme = available.has(stored) ? stored : "obsidian";
-
-  themeSelectEl.value = nextTheme;
+  const stored = localStorage.getItem(THEME_STORAGE_KEY);
+  const nextTheme: ThemeId = stored && THEME_IDS.has(stored as ThemeId) ? (stored as ThemeId) : "obsidian";
   applyTheme(nextTheme);
 }
 
@@ -96,6 +116,7 @@ function renderEmptyState(message?: string): void {
   }
   if (pathEl) {
     pathEl.textContent = "Open via terminal to get started.";
+    pathEl.title = "Open via terminal to get started.";
   }
 }
 
@@ -192,9 +213,11 @@ async function renderDocument(document: LoadedDocument): Promise<void> {
 
   if (nameEl) {
     nameEl.textContent = document.fileName;
+    nameEl.title = document.fileName;
   }
   if (pathEl) {
     pathEl.textContent = document.path;
+    pathEl.title = document.path;
   }
 
   const rendered = marked.parse(document.markdown, { async: false }) as string;
@@ -213,6 +236,16 @@ async function loadDocument(reason: string): Promise<void> {
     const message = error instanceof Error ? error.message : String(error);
     renderEmptyState(message);
     setStatus("No document assigned to this window.", true);
+  }
+}
+
+async function openCurrentFileInVSCode(): Promise<void> {
+  try {
+    await invoke("open_in_vscode");
+    setStatus("Opened current file in VS Code.");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    setStatus(`Unable to open VS Code: ${message}`, true);
   }
 }
 
@@ -240,24 +273,206 @@ async function handleLinkClick(href: string): Promise<void> {
   }
 }
 
+function fuzzyScore(query: string, candidate: string): number | null {
+  const q = query.trim().toLowerCase();
+  if (!q) {
+    return 0;
+  }
+
+  const source = candidate.toLowerCase();
+  let qIndex = 0;
+  let score = 0;
+  let streak = 0;
+
+  for (let i = 0; i < source.length && qIndex < q.length; i += 1) {
+    if (source[i] !== q[qIndex]) {
+      streak = 0;
+      continue;
+    }
+
+    score += 10;
+    if (i < 12) {
+      score += 3;
+    }
+
+    streak += 1;
+    if (streak > 1) {
+      score += streak * 2;
+    }
+
+    qIndex += 1;
+  }
+
+  if (qIndex !== q.length) {
+    return null;
+  }
+
+  return score - (source.length - q.length);
+}
+
+function matchingCommands(query: string): PaletteCommand[] {
+  const scored = commandList
+    .map((command) => {
+      const score = fuzzyScore(query, `${command.label} ${command.keywords}`);
+      return score === null ? null : { command, score };
+    })
+    .filter((entry): entry is { command: PaletteCommand; score: number } => entry !== null)
+    .sort((left, right) => right.score - left.score || left.command.label.localeCompare(right.command.label));
+
+  return scored.map((entry) => entry.command);
+}
+
+function renderCommandResults(): void {
+  if (!commandResultsEl || !commandInputEl) {
+    return;
+  }
+
+  filteredCommands = matchingCommands(commandInputEl.value);
+
+  if (filteredCommands.length === 0) {
+    selectedCommandIndex = 0;
+    commandResultsEl.innerHTML = '<li class="command-empty">No matching commands.</li>';
+    return;
+  }
+
+  if (selectedCommandIndex >= filteredCommands.length) {
+    selectedCommandIndex = 0;
+  }
+
+  commandResultsEl.innerHTML = "";
+
+  filteredCommands.forEach((command, index) => {
+    const item = document.createElement("li");
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "command-item";
+
+    if (index === selectedCommandIndex) {
+      button.classList.add("is-selected");
+    }
+
+    button.textContent = command.label;
+    button.dataset.index = String(index);
+
+    button.addEventListener("mouseenter", () => {
+      selectedCommandIndex = index;
+      renderCommandResults();
+    });
+
+    button.addEventListener("click", () => {
+      void runCommandByIndex(index);
+    });
+
+    item.appendChild(button);
+    commandResultsEl.appendChild(item);
+  });
+}
+
+function openCommandPalette(): void {
+  if (!commandPaletteEl || !commandInputEl) {
+    return;
+  }
+
+  commandPaletteEl.hidden = false;
+  commandPaletteEl.setAttribute("aria-hidden", "false");
+  isPaletteOpen = true;
+
+  commandInputEl.value = "";
+  selectedCommandIndex = 0;
+  renderCommandResults();
+
+  window.requestAnimationFrame(() => {
+    commandInputEl.focus();
+    commandInputEl.select();
+  });
+}
+
+function closeCommandPalette(): void {
+  if (!commandPaletteEl) {
+    return;
+  }
+
+  commandPaletteEl.hidden = true;
+  commandPaletteEl.setAttribute("aria-hidden", "true");
+  isPaletteOpen = false;
+}
+
+async function runCommandByIndex(index: number): Promise<void> {
+  const command = filteredCommands[index];
+  if (!command) {
+    return;
+  }
+
+  closeCommandPalette();
+  await command.run();
+}
+
 function bindEvents(): void {
-  themeSelectEl?.addEventListener("change", (event) => {
-    const target = event.target as HTMLSelectElement;
-    applyTheme(target.value);
-    setStatus(`Theme switched to ${target.options[target.selectedIndex]?.text ?? target.value}.`);
+  vscodeBtn?.addEventListener("click", () => {
+    void openCurrentFileInVSCode();
   });
 
-  reloadBtn?.addEventListener("click", () => {
-    void loadDocument("Reloaded from disk.");
+  paletteBtn?.addEventListener("click", () => {
+    openCommandPalette();
   });
 
-  vscodeBtn?.addEventListener("click", async () => {
-    try {
-      await invoke("open_in_vscode");
-      setStatus("Opened current file in VS Code.");
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      setStatus(`Unable to open VS Code: ${message}`, true);
+  commandInputEl?.addEventListener("input", () => {
+    selectedCommandIndex = 0;
+    renderCommandResults();
+  });
+
+  commandInputEl?.addEventListener("keydown", (event) => {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      if (filteredCommands.length === 0) {
+        return;
+      }
+      selectedCommandIndex = (selectedCommandIndex + 1) % filteredCommands.length;
+      renderCommandResults();
+      return;
+    }
+
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      if (filteredCommands.length === 0) {
+        return;
+      }
+      selectedCommandIndex =
+        selectedCommandIndex === 0 ? filteredCommands.length - 1 : selectedCommandIndex - 1;
+      renderCommandResults();
+      return;
+    }
+
+    if (event.key === "Enter") {
+      event.preventDefault();
+      void runCommandByIndex(selectedCommandIndex);
+      return;
+    }
+
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeCommandPalette();
+    }
+  });
+
+  commandPaletteEl?.addEventListener("click", (event) => {
+    const target = event.target as HTMLElement;
+    if (target.closest("[data-close-palette]")) {
+      closeCommandPalette();
+    }
+  });
+
+  window.addEventListener("keydown", (event) => {
+    const key = event.key.toLowerCase();
+    if ((event.metaKey || event.ctrlKey) && event.shiftKey && key === "p") {
+      event.preventDefault();
+      openCommandPalette();
+      return;
+    }
+
+    if (isPaletteOpen && event.key === "Escape") {
+      event.preventDefault();
+      closeCommandPalette();
     }
   });
 
@@ -269,11 +484,7 @@ function bindEvents(): void {
     }
 
     const href = link.getAttribute("href")?.trim();
-    if (!href) {
-      return;
-    }
-
-    if (href.startsWith("#")) {
+    if (!href || href.startsWith("#")) {
       return;
     }
 
@@ -282,8 +493,57 @@ function bindEvents(): void {
   });
 }
 
+function buildCommands(): PaletteCommand[] {
+  return [
+    {
+      id: "theme-obsidian",
+      label: "Theme: Obsidian Night",
+      keywords: `theme ${THEMES[0].keywords}`,
+      run: () => {
+        applyTheme("obsidian");
+        setStatus(`Theme switched to ${currentThemeLabel("obsidian")}.`);
+      },
+    },
+    {
+      id: "theme-paper",
+      label: "Theme: Graph Paper",
+      keywords: `theme ${THEMES[1].keywords}`,
+      run: () => {
+        applyTheme("paper");
+        setStatus(`Theme switched to ${currentThemeLabel("paper")}.`);
+      },
+    },
+    {
+      id: "theme-grove",
+      label: "Theme: Moss Grove",
+      keywords: `theme ${THEMES[2].keywords}`,
+      run: () => {
+        applyTheme("grove");
+        setStatus(`Theme switched to ${currentThemeLabel("grove")}.`);
+      },
+    },
+    {
+      id: "reload",
+      label: "Reload Document",
+      keywords: "reload refresh reread",
+      run: async () => {
+        await loadDocument("Reloaded from disk.");
+      },
+    },
+    {
+      id: "open-vscode",
+      label: "Open in VS Code",
+      keywords: "open vscode code editor",
+      run: async () => {
+        await openCurrentFileInVSCode();
+      },
+    },
+  ];
+}
+
 window.addEventListener("DOMContentLoaded", async () => {
   restoreTheme();
+  commandList = buildCommands();
   bindEvents();
 
   await listen("basalt://file-changed", async () => {
