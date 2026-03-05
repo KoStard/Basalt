@@ -1650,10 +1650,12 @@ pub fn run() {
                 eprintln!("Basalt control server failed to start: {error:#}");
             }
 
-            let Some(main_window) = app.get_webview_window("main") else {
+            if let Err(error) = ensure_main_window(app.handle()) {
+                eprintln!("Failed to create main window: {error}");
                 return Ok(());
-            };
+            }
 
+            let main_window = app.get_webview_window("main").unwrap();
             register_window_cleanup(&main_window, app.handle().clone());
 
             // Merge CLI targets with any paths received via macOS Open With (RunEvent::Opened)
@@ -1662,12 +1664,10 @@ pub fn run() {
                 all_targets.extend(pending.drain(..));
             }
 
-            if all_targets.is_empty() {
-                return Ok(());
-            }
-
-            if let Err(error) = open_targets(app.handle(), state.inner(), all_targets, true) {
-                eprintln!("Failed to open startup files: {error}");
+            if !all_targets.is_empty() {
+                if let Err(error) = open_targets(app.handle(), state.inner(), all_targets, true) {
+                    eprintln!("Failed to open startup files: {error}");
+                }
             }
             Ok(())
         })
