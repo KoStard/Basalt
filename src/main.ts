@@ -32,10 +32,8 @@ const THEME_IDS = new Set<ThemeId>(THEMES.map((theme) => theme.id));
 
 const viewerEl = document.querySelector<HTMLElement>("#viewer");
 const statusTextEl = document.querySelector<HTMLElement>("#status-text");
-const nameEl = document.querySelector<HTMLElement>("#doc-name");
 const pathEl = document.querySelector<HTMLElement>("#doc-path");
 const vscodeBtn = document.querySelector<HTMLButtonElement>("#vscode-btn");
-const paletteBtn = document.querySelector<HTMLButtonElement>("#palette-btn");
 const commandPaletteEl = document.querySelector<HTMLElement>("#command-palette");
 const commandInputEl = document.querySelector<HTMLInputElement>("#command-input");
 const commandResultsEl = document.querySelector<HTMLUListElement>("#command-results");
@@ -111,9 +109,6 @@ function renderEmptyState(message?: string): void {
     </section>
   `;
 
-  if (nameEl) {
-    nameEl.textContent = "No document loaded";
-  }
   if (pathEl) {
     pathEl.textContent = "Open via terminal to get started.";
     pathEl.title = "Open via terminal to get started.";
@@ -211,10 +206,6 @@ async function renderDocument(document: LoadedDocument): Promise<void> {
     return;
   }
 
-  if (nameEl) {
-    nameEl.textContent = document.fileName;
-    nameEl.title = document.fileName;
-  }
   if (pathEl) {
     pathEl.textContent = document.path;
     pathEl.title = document.path;
@@ -410,10 +401,6 @@ async function runCommandByIndex(index: number): Promise<void> {
 function bindEvents(): void {
   vscodeBtn?.addEventListener("click", () => {
     void openCurrentFileInVSCode();
-  });
-
-  paletteBtn?.addEventListener("click", () => {
-    openCommandPalette();
   });
 
   commandInputEl?.addEventListener("input", () => {

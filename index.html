@@ -9,21 +9,8 @@
   </head>
   <body>
     <div class="app-shell">
-      <header class="topbar">
-        <div class="top-left">
-          <span class="brand-title">Basalt</span>
-          <span class="doc-name" id="doc-name">No document loaded</span>
-        </div>
-        <div class="top-actions">
-          <button
-            id="palette-btn"
-            class="palette-trigger"
-            type="button"
-            title="Command Palette (Cmd/Ctrl+Shift+P)"
-            aria-label="Open command palette"
-          >
-            Cmd/Ctrl+Shift+P
-          </button>
+      <main class="viewer-wrap">
+        <div class="corner-actions">
           <button
             id="vscode-btn"
             class="icon-btn"
@@ -38,9 +25,6 @@
             </svg>
           </button>
         </div>
-      </header>
-
-      <main class="viewer-wrap">
         <article id="viewer" class="viewer" aria-live="polite"></article>
       </main>
 
