@@ -11,7 +11,7 @@ layout: home
 <p align="center">A lightweight terminal-first Markdown viewer for macOS.</p>
 
 <p align="center">
-  <a href="https://github.com/KoStard/Basalt/releases/latest/download/Basalt-v0.1.0-macos-universal.zip">
+  <a href="https://github.com/KoStard/Basalt/releases/latest/download/Basalt-v0.2.0-macos-universal.zip">
     <strong>⬇ Download for macOS (Universal)</strong>
   </a>
   &nbsp;&nbsp;·&nbsp;&nbsp;
