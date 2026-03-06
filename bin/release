@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$REPO_ROOT"
+
+# ── version resolution ────────────────────────────────────────────────────────
+CURRENT=$(jq -r .version package.json)
+
+if [[ "${1:-}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  NEXT="$1"
+else
+  IFS='.' read -r major minor patch <<< "$CURRENT"
+  NEXT="$major.$((minor + 1)).0"
+fi
+
+echo "Releasing $CURRENT → $NEXT"
+
+# ── bump versions ─────────────────────────────────────────────────────────────
+bump_version() {
+  local file="$1" old="$2" new="$3"
+  sed -i '' "s/\"version\": \"$old\"/\"version\": \"$new\"/" "$file"
+}
+
+bump_version package.json        "$CURRENT" "$NEXT"
+bump_version src-tauri/tauri.conf.json "$CURRENT" "$NEXT"
+sed -i '' "s/^version = \"$CURRENT\"/version = \"$NEXT\"/" src-tauri/Cargo.toml
+
+# ── update docs download link ─────────────────────────────────────────────────
+sed -i '' \
+  "s|Basalt-v${CURRENT}-macos-universal\.zip|Basalt-v${NEXT}-macos-universal.zip|g" \
+  docs/index.md
+
+# ── build ─────────────────────────────────────────────────────────────────────
+echo "Building..."
+npm run tauri build -- --target universal-apple-darwin
+
+# ── package artifact ──────────────────────────────────────────────────────────
+APP_SRC="src-tauri/target/universal-apple-darwin/release/bundle/macos/Basalt.app"
+ZIP_NAME="Basalt-v${NEXT}-macos-universal.zip"
+
+echo "Packaging $ZIP_NAME..."
+ditto -c -k --keepParent "$APP_SRC" "/tmp/$ZIP_NAME"
+
+# ── commit, tag, push ─────────────────────────────────────────────────────────
+git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock docs/index.md
+git commit -m "release: v$NEXT"
+git tag "v$NEXT"
+git push origin HEAD --tags
+
+# ── github release ────────────────────────────────────────────────────────────
+echo "Creating GitHub release v$NEXT..."
+gh release create "v$NEXT" \
+  "/tmp/$ZIP_NAME" \
+  --title "v$NEXT" \
+  --generate-notes
+
+echo "Done. v$NEXT released."

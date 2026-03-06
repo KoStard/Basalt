@@ -28,6 +28,8 @@ This file defines repo-specific instructions for coding agents working in Basalt
 - Full app dev: `npm run tauri dev`
 - Build frontend: `npm run build`
 - Build app bundle: `npm run tauri build`
+- Release (auto bump minor): `./bin/release` or `npm run release`
+- Release (specific version): `./bin/release 1.2.3`
 - Local launcher usage: `./bin/basalt <paths...>`, `./bin/basalt watch <directory>`, `./bin/basalt windows list`, `./bin/basalt windows close <path>`
 
 ## Implementation Rules
